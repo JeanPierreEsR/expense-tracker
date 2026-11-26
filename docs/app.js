@@ -1831,6 +1831,13 @@ let metaReadAt_ = 0;   // when loadMeta last read the server itself (not the sav
 // those: the others may have been changed by the code since the page loaded).
 function syncTextVariant_() {
   const want = companyCopyOn_() ? "co" : "";
+  // A company copy has no investments (owner, 2026-11-26): the type tab, the Overview block and card, the search chip and the
+  // platform account type go away (style.css § co-no-invest; the server refuses a new one too). Nothing is deleted.
+  document.body.classList.toggle("co-no-invest", want === "co");
+  if (want === "co" && selectedType === "investment" && !editingEntryId && !confirmingPendingId) {
+    const tab = document.querySelector('#entry-type-tabs .type-tab[data-type="expense"]');
+    if (tab) tab.click();
+  }
   if (I18n.getVariant() === want) return;
   const was = I18n.getVariant();
   I18n.setVariant(want);
@@ -6467,7 +6474,7 @@ function renderSearchFilterBody_(k) {
       field({ labelKey: "search.f.max", labelVars: { cur: homeCur() }, type: "number", key: "max", decimal: true }));
     return;
   }
-  const values = k.ui === "chips" ? ["expense", "income", "transfer", "investment"] : SEARCH_PERIODS_;
+  const values = k.ui === "chips" ? ["expense", "income", "transfer", "investment"].filter((v) => v !== "investment" || !companyCopyOn_()) : SEARCH_PERIODS_;
   const isOn = (v) => (k.ui === "chips" ? f.types.includes(v) : f.period === v);
   let custom = null;
   const rows = [];
@@ -10833,7 +10840,7 @@ function homeMainCard_(g) {
     <div class="home-four">
       <div class="home-four-box"><span><i class="home-key" style="background:var(--income)"></i>${escapeHtml(tr("summary.income"))}</span><b class="income">${signed(m.income)}</b></div>
       <div class="home-four-box"><span><i class="home-key" style="background:var(--expense)"></i>${escapeHtml(tr("summary.expenses"))}</span><b class="expense">${signed(-m.expense)}</b></div>
-      <div class="home-four-box"><span>${escapeHtml(tr("summary.investments"))}</span><b>${signed(-m.investment)}</b></div>
+      <div class="home-four-box home-four-invest"><span>${escapeHtml(tr("summary.investments"))}</span><b>${signed(-m.investment)}</b></div>
       <div class="home-four-box"><span>${escapeHtml(tr("summary.loans"))}</span><b class="${(m.loans || 0) > 0.5 ? "income" : ""}">${signed(m.loans || 0)}</b></div>
     </div>`;
 
@@ -13710,7 +13717,7 @@ function renderFlowChips_() {
   const box = document.getElementById("drilldown-chips");
   if (!flowsState_) { box.hidden = true; return; }
   box.hidden = false;
-  box.innerHTML = FLOW_FILTERS_.map((f) => `<button type="button" class="flow-chip flow-${f}${f === flowsState_.filter ? " active" : ""}" data-flow="${f}" aria-pressed="${f === flowsState_.filter}">` +
+  box.innerHTML = FLOW_FILTERS_.filter((f) => f !== "investment" || !companyCopyOn_()).map((f) => `<button type="button" class="flow-chip flow-${f}${f === flowsState_.filter ? " active" : ""}" data-flow="${f}" aria-pressed="${f === flowsState_.filter}">` +
     `<span class="flow-chip-label">${escapeHtml(f === "all" ? tr("flows.all") : flowLabel_(f))}</span><span class="flow-chip-amt">${escapeHtml(flowChipAmount_(f))}</span></button>`).join("");
   document.getElementById("drilldown-title").textContent = flowLabel_(flowsState_.filter);
 }
@@ -17744,7 +17751,7 @@ let tour_ = null;
 function tourCards_(part) {
   if (part === "pro") {
     const caps = (meta && meta.capabilities) || {};
-    const cards = ["invest", "friends", "bill", "programmed", "trips", "projections"];
+    const cards = ["invest", "friends", "bill", "programmed", "trips", "projections"].filter((c) => c !== "invest" || !companyCopyOn_());
     if (caps.bankEmails) cards.push("bank");
     cards.push("mydata");   // one card for the whole My data hub (bank statements included)
     return cards;
@@ -21278,7 +21285,7 @@ function openPmModal_(pm) {
   const typeSel = document.getElementById("pm-type");
   typeSel.innerHTML = "";
   // "Investment platform" is offered to everyone (a copy that skipped the welcome step has no other way to add a platform).
-  const types = [...PM_TYPES_, ...(pm && pm.type === "transfer" ? ["transfer"] : []), "investment"];
+  const types = [...PM_TYPES_, ...(pm && pm.type === "transfer" ? ["transfer"] : []), ...(!companyCopyOn_() || (pm && pm.type === "investment") ? ["investment"] : [])];   // none on a company copy
   types.forEach((t) => {
     const o = document.createElement("option");
     o.value = t;
@@ -33105,6 +33112,7 @@ function practiceISaveFailed_() {
 }
 
 function offerInvestmentsTip_() {
+  if (companyCopyOn_()) return;   // no investments on a company copy
   if (!((meta && meta.capabilities) || {}).practiceInvestments) return;   // an older backend could not clean the practice platform up
   if (!tipSeen_("accounts")) return;   // one practice at a time on this screen: the Accounts one is offered first
   // The practice's deposit leaves from one of the person's own accounts: with none (only platforms, or all hidden) there is nothing to practise with.

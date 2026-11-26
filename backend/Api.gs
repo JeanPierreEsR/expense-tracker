@@ -1204,7 +1204,13 @@ function getSettingsMap() {
 
 // ---- Entries ----
 
+// A company copy has no investments (owner, 2026-11-26): money put aside is a transfer to the company's own account.
+function refuseCompanyInvestment_(type) {
+  if (String(type || '') === 'investment' && isCompanyCopy_()) throw new Error(tr_('invest.notInCompany'));
+}
+
 function createEntry(payload) {
+  refuseCompanyInvestment_(payload.type);
   // A save the phone sends from its background queue carries its own id (client_id), so sending it again — after a lost
   // reply, or when the app was closed mid-save — never makes a second entry: the same id answers with the entry it made.
   var clientId = String(payload.client_id || '');
@@ -2322,6 +2328,7 @@ function addTag(payload) {
 }
 
 function addPaymentMethod(payload) {
+  refuseCompanyInvestment_(payload.type);
   // Idempotent by nickname — the "+ Add payment method…" flow re-prompts
   // every time (e.g. tapping it again for "Cash" instead of picking the
   // one already in the list), and previously created a brand-new row each
@@ -2406,6 +2413,7 @@ function savePaymentMethod(payload) {
   if (!nickname) throw new Error(tr_('err.enterName'));
   var type = String(payload.type || '').trim().toLowerCase();
   if (PAYMENT_METHOD_TYPES_.indexOf(type) === -1) throw new Error(tr_('err.pmType'));
+  if (type === 'investment' && !(payload.id && (getAllRows('Payment Methods').find(function (p) { return p.id === payload.id; }) || {}).type === 'investment')) refuseCompanyInvestment_(type);
   var last4 = String(payload.last_4 == null ? '' : payload.last_4).trim();
   if (last4 && !/^\d{4}$/.test(last4)) throw new Error(tr_('err.pmLast4'));
   pmCheckMoreLast4_(payload.last_4_more);   // the other currencies' digits, checked before anything is written (AccountNumbers.gs)
