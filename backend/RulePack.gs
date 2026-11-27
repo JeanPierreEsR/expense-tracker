@@ -31,7 +31,9 @@ var RULE_PACK_RULE_KEYS_ = ['id', 'bank', 'sender', 'label', 'skip', 'cardIsDest
   'subjectEndsWith', 'subjectIs', 'bodyHas', 'bodyHasAny', 'amount', 'merchant', 'recipient', 'description', 'last4', 'to', 'externalId', 'accountName',
   // 2026-11-26 (twins of Plin, Yape, SIP "Enviar a celular", BCP "a otros bancos", Crecer Seguros): new keys ONLY, never a new meaning for an old
   // one, so an older backend skips just the rules that use them (rulePackNewerOnly_) and keeps the rest of the file.
-  'rail', 'review', 'category', 'accountsOfBank'];
+  'rail', 'review', 'category', 'accountsOfBank',
+  // 2026-11-27: `cardName` {subjectAfter} = the card's product name, read from the subject after that word, picks the card when there are no digits.
+  'cardName'];
 var RULE_PACK_RAILS_ = ['yape', 'plin'];
 var RULE_PACK_ADDRESS_ = /^[a-z0-9._%+-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/;
 
@@ -140,6 +142,13 @@ function rulePackCheckRule_(r, where, errors, strict) {
   // `accountName` (2026-11-20): the label of the line that names the account the money left by its product name, no digits (SIP's
   // "Origen"); the scan picks the person's account whose name is in it.
   if (r.accountName !== undefined) rulePackLabel_(r.accountName, where + '.accountName', errors);
+  if (r.cardName !== undefined) {
+    if (!r.cardName || typeof r.cardName !== 'object' || Array.isArray(r.cardName)) errors.push(where + '.cardName: needs {subjectAfter}');
+    else {
+      Object.keys(r.cardName).forEach(function (k) { if (k !== 'subjectAfter') errors.push(where + '.cardName: unknown field ' + k); });
+      if (rulePackText_(r.cardName.subjectAfter, where + '.cardName.subjectAfter', errors) && !/^[a-z]+$/i.test(r.cardName.subjectAfter)) errors.push(where + '.cardName.subjectAfter: one word');
+    }
+  }
   if (r.description !== undefined) {
     var d = r.description;
     if (!d || typeof d !== 'object') errors.push(where + '.description: needs {labels}');
@@ -372,6 +381,7 @@ function rulePackCompile_(r) {
       if (ownMaybe) fields.toIfOwnLast4 = ownMaybe;
     }
     if (r.accountName) fields.accountName = afterLabel_(body, rulePackEscape_(r.accountName.label));
+    if (r.cardName) fields.cardName = subjectCardName_(subject, r.cardName.subjectAfter);
     return fields;
   };
   return rule;

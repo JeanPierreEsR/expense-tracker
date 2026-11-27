@@ -1,5 +1,5 @@
 {
-  "version": 11,
+  "version": 12,
   "rules": [
     { "id": "bcp-consumo-debito", "replaces": "Consumo tarjeta de débito", "bank": "BCP", "sender": "notificaciones@notificacionesbcp.com.pe", "label": "Consumo tarjeta de débito (pack)",
       "accountByCurrency": true, "subjectHas": ["realizaste un consumo", "debito"], "type": "expense", "amount": { "label": "Total del consumo" },
@@ -109,6 +109,9 @@
       "label": "Pago Plin (pack)", "subjectHas": ["constancia de pago plin"], "type": "transferIfOwn", "amount": { "label": "Monto y moneda" },
       "recipient": { "label": "Destinatario" }, "description": { "prefix": "Plin a ", "ownText": "Plin (propio)" },
       "last4": { "label": "Cuenta cargo", "orLabel": "Tarjeta cargo", "kind": "account" }, "externalId": { "label": "Código de operación" } },
+    { "id": "interbank-consumo", "replaces": "Consumo", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe",
+      "label": "Consumo (pack)", "subjectHas": ["realizaste un consumo"], "type": "expense", "amount": { "label": "Monto" },
+      "merchant": { "label": "Comercio" }, "last4": { "label": "Tarjeta", "kind": "card" }, "cardName": { "subjectAfter": "tarjeta" } },
     { "id": "sip-enviar-a-celular", "replaces": "Enviar a celular", "bank": "SIP", "sender": "no-reply@operaciones.agora.pe",
       "label": "Enviar a celular (pack)", "bodyHas": ["enviar a celular"], "type": "transferIfOwn", "amount": { "label": "Monto" },
       "recipient": { "label": "Enviado a" }, "description": { "prefix": "Envío a celular: ", "ownText": "Envío a celular (propio)" },
