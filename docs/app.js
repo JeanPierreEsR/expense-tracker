@@ -3497,6 +3497,7 @@ function syncPartsField_() {
     document.getElementById("selected-category-banner").hidden = true;
     document.getElementById("category-select-field").hidden = true;
     document.getElementById("split-field").hidden = true;
+    document.getElementById("refund-field").hidden = true;   // a refund of one part comes later (plan step 3)
   }
 }
 function partAmountCents_(text) {

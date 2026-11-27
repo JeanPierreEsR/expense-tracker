@@ -791,6 +791,7 @@ input[type="date"] {
   font-size: 1rem;
 }
 .part-row .part-share { margin-top: 4px; }
+#part-share-tabs { margin: 12px 0 4px; }
 .part-share-row {
   display: flex;
   align-items: center;
