@@ -392,6 +392,8 @@
     // Detracción (company copies, 2026-11-26)
     "detr.toggle": { en: "With detracción", es: "Con detracción" },
     "detr.rate": { en: "Detracción (%)", es: "Detracción (%)" },
+    "detr.pen": { en: "Deposited in the Banco de la Nación (PEN)", es: "Depositado en el Banco de la Nación (S/)" },
+    "detr.needPen": { en: "Type the soles deposited in the Banco de la Nación.", es: "Escribe los soles depositados en el Banco de la Nación." },
     "detr.hint": { en: "Reaches the bank: {bank} · to the Banco de la Nación: {bn}. The amount is the whole invoice.", es: "Llega al banco: {bank} · al Banco de la Nación: {bn}. El monto es la factura completa." },
     "detr.grossedUp": { en: "The amount is now the invoice, {total}: {net} reached the bank and {bn} went to the Banco de la Nación.", es: "El monto ahora es la factura, {total}: al banco llegaron {net} y {bn} fueron al Banco de la Nación." },
     "detr.companyRate": { en: "Usual detracción (%)", es: "Detracción habitual (%)" },

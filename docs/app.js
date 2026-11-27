@@ -4268,6 +4268,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     const contractError = contractPayError_(amount);   // a construction contract's valuation must add up (Contracts.gs)
     if (contractError) throw new Error(contractError);
+    const detrOut = detractionFieldToSend_();   // a detracción in another currency needs the soles deposited (Detractions.gs)
+    if (detrOut.detraction_amount !== undefined && detrOut.detraction_amount !== "" && detrCur_() !== "PEN" && !detrOut.detraction_pen) throw new Error(tr("detr.needPen"));
     // A purchase can't go below what already came back (the server refuses too; checked here so the window stays open, owner 2026-11-26).
     const backAlready = editingRefundEntry_ && editingRefundEntry_.id === editingEntryId && !editingRefundEntry_.refund_of && selectedType === "expense" ? Number(editingRefundEntry_.refunded || 0) : 0;
     if (backAlready > 0.004 && amount < backAlready - 0.004) throw new Error(tr("refund.belowRefundedPhone", { amount: formatAmount(backAlready, editingRefundEntry_.currency) }));
@@ -26993,7 +26995,25 @@ let detrStored_ = null;     // an entry being edited: its stored detracción (0 
 let detrNetBefore_ = null;  // an item from the bank, raised to the invoice: what arrived
 function detrRateFor_(company) { const r = Number(company && company.detraction_rate); return r > 0 && r < 100 ? r : 4; }
 function detrRate_() { const r = parseFloat(String(document.getElementById("detraction-rate").value).replace(/,/g, ".")); return r > 0 && r < 100 ? r : 0; }
-function detrAmountOf_(total) { const r = detrRate_(); return r ? Math.round(total * r / 100) : 0; }
+// In soles SUNAT's whole soles; in another currency the client keeps the % to the cent and deposits its value in soles (detraction-pen).
+function detrCur_() { return document.getElementById("currency").value.toUpperCase(); }
+function detrAmountOf_(total) { const r = detrRate_(); if (!r) return 0; return detrCur_() === "PEN" ? Math.round(total * r / 100) : Math.round(total * r) / 100; }
+let detrPenTouched_ = false;
+const detrRates_ = new Map();   // "USD|2026-11" -> the month's rate to soles (or null)
+function detrProposePen_() {
+  if (detrCur_() === "PEN" || detrPenTouched_ || document.getElementById("detraction-detail").hidden) return;
+  const total = parseFloat(String(document.getElementById("amount").value).replace(/,/g, "")) || 0;
+  const key = detrCur_() + "|" + String(document.getElementById("date").value).slice(0, 7);
+  const fill = (rate) => { if (detrPenTouched_ || !(rate > 0)) return; const d = detrAmountOf_(total); document.getElementById("detraction-pen").value = d > 0 ? String(Math.round(d * rate)) : ""; renderDetractionHint_(); };
+  if (homeCur() !== "PEN") return;   // the rate table is to the main currency: soles only where they are the main one
+  if (detrRates_.has(key)) { fill(detrRates_.get(key)); return; }
+  detrRates_.set(key, null);
+  callApi("getExchangeRate", { currency: detrCur_(), month: key.slice(-7) }).then((r) => {
+    const rate = Number(r && (r.rate !== undefined ? r.rate : r)) || 0;
+    detrRates_.set(key, rate || null);
+    fill(rate);
+  }).catch(() => detrRates_.delete(key));
+}
 function detrFromBank_() {
   const w = lastConfirmPendingEntry_;
   return !!confirmingPendingId && !!w && w.id === confirmingPendingId && ["email", "shortcut", "statement", "house"].includes(w.source);
@@ -27003,7 +27023,7 @@ function syncDetractionField_() {
   if (!field || !meta) return;
   const company = businessCompanyOfPick_();
   const toggle = document.getElementById("detraction-toggle");
-  const show = companyCopyOn_() && selectedType === "income" && !!company && document.getElementById("currency").value.toUpperCase() === "PEN" && !incomeWaitingOn_();
+  const show = companyCopyOn_() && selectedType === "income" && !!company && !incomeWaitingOn_();
   field.hidden = !show;
   if (!show) { if (toggle.checked) detrUngross_(); toggle.checked = false; return; }
   const rateBox = document.getElementById("detraction-rate");
@@ -27013,6 +27033,8 @@ function syncDetractionField_() {
     toggle.checked = !(cat && DETR_SALE_KEYS_.includes(String(cat.key || "")));
   }
   document.getElementById("detraction-detail").hidden = !toggle.checked;
+  document.getElementById("detraction-pen-box").hidden = detrCur_() === "PEN";
+  detrProposePen_();
   renderDetractionHint_();
 }
 function renderDetractionHint_() {
@@ -27020,9 +27042,12 @@ function renderDetractionHint_() {
   if (!hint || document.getElementById("detraction-field").hidden || !document.getElementById("detraction-toggle").checked) return;
   const total = parseFloat(String(document.getElementById("amount").value).replace(/,/g, "")) || 0;
   const d = detrAmountOf_(total);
+  const cur = detrCur_();
+  const penBox = parseFloat(String(document.getElementById("detraction-pen").value).replace(/,/g, "")) || 0;
+  const bn = cur === "PEN" ? formatAmount(d, "PEN") : penBox > 0 ? formatAmount(Math.round(penBox), "PEN") : formatAmount(d, cur);
   hint.textContent = detrNetBefore_ !== null
-    ? tr("detr.grossedUp", { total: formatAmount(total, "PEN"), net: formatAmount(detrNetBefore_, "PEN"), bn: formatAmount(d, "PEN") })
-    : tr("detr.hint", { bank: formatAmount(Math.max(0, total - d), "PEN"), bn: formatAmount(d, "PEN") });
+    ? tr("detr.grossedUp", { total: formatAmount(total, cur), net: formatAmount(detrNetBefore_, cur), bn })
+    : tr("detr.hint", { bank: formatAmount(Math.max(0, total - d), cur), bn });
 }
 // From the bank: what arrived is the net; the invoice is net + the part kept (net × r / (100 − r), whole soles).
 function detrGrossUp_() {
@@ -27031,7 +27056,8 @@ function detrGrossUp_() {
   const r = detrRate_();
   if (!(net > 0) || !r) return;
   detrNetBefore_ = net;
-  box.value = (net + Math.round(net * r / (100 - r))).toFixed(2);
+  const kept = detrCur_() === "PEN" ? Math.round(net * r / (100 - r)) : Math.round(net * r / (100 - r) * 100) / 100;
+  box.value = (net + kept).toFixed(2);
   if (typeof igvAutoFill_ === "function" && document.getElementById("igv-toggle").checked) { igvAutoFill_(); renderIgvHint_(); }
 }
 function detrUngross_() {
@@ -27042,6 +27068,8 @@ function detrUngross_() {
 function setDetractionState_(entry) {
   detrTouched_ = false;
   detrNetBefore_ = null;
+  detrPenTouched_ = !!(entry && Number(entry.detraction_pen) > 0);
+  document.getElementById("detraction-pen").value = entry && Number(entry.detraction_pen) > 0 ? String(Math.round(Number(entry.detraction_pen))) : "";
   detrStored_ = entry ? (Number(entry.detraction_amount) > 0 ? Number(entry.detraction_amount) : 0) : null;
   const toggle = document.getElementById("detraction-toggle");
   toggle.checked = !!detrStored_;
@@ -27051,7 +27079,12 @@ function setDetractionState_(entry) {
   syncDetractionField_();
 }
 // A company copy's income always sends it ("" takes it off on an edit); everything else never touches it.
-function detractionFieldToSend_() { return companyCopyOn_() && selectedType === "income" ? { detraction_amount: detractionValueToSend_() } : {}; }
+function detractionFieldToSend_() {
+  if (!companyCopyOn_() || selectedType !== "income") return {};
+  const out = { detraction_amount: detractionValueToSend_() };
+  if (out.detraction_amount !== "" && detrCur_() !== "PEN") out.detraction_pen = Math.round(parseFloat(String(document.getElementById("detraction-pen").value).replace(/,/g, "")) || 0) || "";
+  return out;
+}
 // What the form sends: the part kept in whole soles, or "" (none, or taken off).
 function detractionValueToSend_() {
   if (document.getElementById("detraction-field").hidden || !document.getElementById("detraction-toggle").checked) return "";
@@ -27070,9 +27103,16 @@ document.getElementById("detraction-rate").addEventListener("input", (e) => {
   if (clean !== e.target.value) e.target.value = clean;
   detrTouched_ = true;
   if (detrNetBefore_ !== null) detrGrossUp_();
+  detrProposePen_();
   renderDetractionHint_();
 });
-document.getElementById("amount").addEventListener("input", () => { if (detrNetBefore_ !== null) detrNetBefore_ = null; renderDetractionHint_(); });
+document.getElementById("amount").addEventListener("input", () => { if (detrNetBefore_ !== null) detrNetBefore_ = null; detrProposePen_(); renderDetractionHint_(); });
+document.getElementById("detraction-pen").addEventListener("input", (e) => {
+  const clean = e.target.value.replace(/[^0-9]/g, "");
+  if (clean !== e.target.value) e.target.value = clean;
+  detrPenTouched_ = clean !== "";
+  renderDetractionHint_();
+});
 
 function syncIgvField_() {
   const field = document.getElementById("igv-field");

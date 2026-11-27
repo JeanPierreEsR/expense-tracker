@@ -1293,6 +1293,7 @@ function createEntry(payload) {
     entry.payment_method_id = '';   // no account until the money arrives
     entry.income_waiting = '1';
   }
+  checkDetractionBeforeSave_(entry, payload.detraction_amount, payload.detraction_pen);   // Detractions.gs: refused before anything is written
   appendRowObject('Entries', entry);
   if (incomeWaits) createWaitingIncomeLoan_(entry, payload.due_date);
   if (guessedCategory) entry.guessed_category_name = categoryNameForMessage_(guessedCategory);
@@ -1308,7 +1309,7 @@ function createEntry(payload) {
   if (!payload.tag_ids) autoTagTravelEntry_(entry);
   if (payload.contract_payment) applyContractPaymentFromSave_(id, payload.contract_payment);   // a construction contract's payment (Contracts.gs)
   if (payload.detraction_amount !== undefined && payload.detraction_amount !== '') {   // a company's income with a detracción (Detractions.gs)
-    applyDetractionFromSave_(id, payload.detraction_amount);
+    applyDetractionFromSave_(id, payload.detraction_amount, payload.detraction_pen);
     entry = getEntryById_(id) || entry;
   }
 

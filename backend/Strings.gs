@@ -178,6 +178,7 @@ var BACKEND_STRINGS_ = {
   "contract.pickKind": { en: "Choose what this payment is.", es: "Elige qué es este pago." },
   "contract.netMismatch": { en: "The amount must be the valuation minus the advance taken back minus the guarantee kept.", es: "El monto tiene que ser la valorización menos el adelanto descontado menos la garantía retenida." },
   "detr.badRate": { en: "Type a percentage between 0 and 100.", es: "Escribe un porcentaje entre 0 y 100." },
+  "detr.needPen": { en: "Type the soles deposited in the Banco de la Nación (there is no rate for that month).", es: "Escribe los soles depositados en el Banco de la Nación (no hay tipo de cambio para ese mes)." },
   "detr.tooBig": { en: "The detracción must be smaller than the amount.", es: "La detracción tiene que ser menor que el monto." },
   "detr.accountName": { en: "Banco de la Nación (detracciones)", es: "Banco de la Nación (detracciones)" },
   "detr.transferDesc": { en: "Detracción · {what}", es: "Detracción · {what}" },
