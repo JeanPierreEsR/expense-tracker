@@ -151,9 +151,9 @@ function subjectCardName_(subject, word) {
 
 // Which credit card of the bank that name is: the one whose name is in it ("Visa Infinite" in "Interbank Visa Infinite"), else the bank's
 // ONLY credit card. Never a debit card ("Tarjeta de Debito ..." is read the usual way); null when it cannot be told.
-function emailCardByName_(name, bank, paymentMethods) {
+function emailCardByName_(name, bank, paymentMethods, last4) {
   if (!name || !bank || /d[e\u00e9]bito/i.test(name)) return null;
-  var cards = paymentMethods.filter(function (pm) { return pm.type === 'credit' && pm.bank_id === bank.id; });
+  var cards = paymentMethods.filter(function (pm) { return pm.type === 'credit' && pm.bank_id === bank.id && (!last4 || pmHasNoDigits_(pm)); });   // digits read but matching no account: only a card with no digits filled in
   var words = ownerNameTokens_(name);
   var named = cards.filter(function (pm) {
     var nick = ownerNameTokens_(String(pm.nickname || '').replace(new RegExp(rulePackEscape_(bank.name), 'ig'), ' ')).join('');
@@ -566,8 +566,8 @@ var EMAIL_RULES = [
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: afterLabel_(body, 'Comercio'),
         merchant: afterLabel_(body, 'Comercio'),
-        last4: extractLast4_(afterLabel_(body, 'Tarjeta') || body),
-        // No digits at all: the card's name in the subject ("...con tu Tarjeta Interbank Visa Infinite") picks the card (emailCardByName_).
+        last4: lastFourAfter_(body, 'Tarjeta'),   // the masked digits on the "Tarjeta: ****1234" line (2026-11-27; the title line also says "Tarjeta" and has none)
+        // No digits (or digits of no account): the card's name in the subject ("...con tu Tarjeta Interbank Visa Infinite") picks the card (emailCardByName_).
         cardName: subjectCardName_(subject, 'tarjeta'),
         externalId: null
       };
@@ -1337,7 +1337,7 @@ function emailAccountFor_(rule, fields, banks, paymentMethods) {
     if (byCard.length === 1) paymentMethod = byCard[0];
   }
   if (!paymentMethod && fields.accountName) paymentMethod = emailAccountByName_(fields.accountName, bank, paymentMethods);
-  if (!paymentMethod && fields.cardName && !fields.last4) paymentMethod = emailCardByName_(fields.cardName, bank, paymentMethods);
+  if (!paymentMethod && fields.cardName) paymentMethod = emailCardByName_(fields.cardName, bank, paymentMethods, fields.last4);
   // No account named in the email: the rule may say which account of that
   // currency the money always leaves (BCP, Yape).
   if (!paymentMethod && rule.rail) {

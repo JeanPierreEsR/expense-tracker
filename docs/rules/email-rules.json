@@ -111,7 +111,7 @@
       "last4": { "label": "Cuenta cargo", "orLabel": "Tarjeta cargo", "kind": "account" }, "externalId": { "label": "Código de operación" } },
     { "id": "interbank-consumo", "replaces": "Consumo", "bank": "Interbank", "sender": "servicioalcliente@netinterbank.com.pe",
       "label": "Consumo (pack)", "subjectHas": ["realizaste un consumo"], "type": "expense", "amount": { "label": "Monto" },
-      "merchant": { "label": "Comercio" }, "last4": { "label": "Tarjeta", "kind": "card" }, "cardName": { "subjectAfter": "tarjeta" } },
+      "merchant": { "label": "Comercio" }, "last4": { "label": "Tarjeta", "kind": "masked" }, "cardName": { "subjectAfter": "tarjeta" } },
     { "id": "sip-enviar-a-celular", "replaces": "Enviar a celular", "bank": "SIP", "sender": "no-reply@operaciones.agora.pe",
       "label": "Enviar a celular (pack)", "bodyHas": ["enviar a celular"], "type": "transferIfOwn", "amount": { "label": "Monto" },
       "recipient": { "label": "Enviado a" }, "description": { "prefix": "Envío a celular: ", "ownText": "Envío a celular (propio)" },
