@@ -2094,6 +2094,7 @@ function buildTransferLinkMap_() {
     loanById[l.id] = l;
     if (l.transfer_entry_id) {
       map[l.transfer_entry_id] = { kind: 'loan', friend: friends[l.friend_id] || '', friend_id: l.friend_id, direction: l.direction };
+      if (l.refund_of) map[l.transfer_entry_id].refund_of = String(l.refund_of);   // a friend's part of a refund (Refunds.gs): titled as such on Home
     }
   });
   getAllRows('Settlements').forEach(function (s) {

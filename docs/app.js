@@ -5102,8 +5102,11 @@ function entryHeadline_(entry) {
   if (entry.type === "transfer" && entry.link && entry.link.friend) {
     const l = entry.link;
     const paidThem = l.direction === "i_owe_them"; // repayment: I paid them; loan: they lent me
+    // A friend's part of a refund is a loan underneath (it nets against what they owed for the purchase), but it reads as what it is
+    // (testers 2.75.0, Lucho: "Loan from Ivo" looked as if Ivo had lent money).
     const text = l.kind === "repayment"
       ? tr(paidThem ? "entry.repaymentTo" : "entry.repaymentFrom", { friend: l.friend })
+      : l.refund_of && paidThem ? tr("entry.refundPart", { friend: l.friend })
       : tr(paidThem ? "entry.loanFrom" : "entry.loanTo", { friend: l.friend });
     return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: entryAccountMeta_(entry) };
   }
@@ -7079,7 +7082,11 @@ function refundRowNote_(entry) {
   if (entry.type !== "expense" || entry.refund_of) return "";
   const bits = [];
   const notShownHere = refundR2_(Number(entry.refunded || 0) - Number(entry.refund_folded || 0));   // (what the amount already shows is not said twice)
-  if (notShownHere > 0.004) bits.push(tr("refund.rowRefunded", { amount: formatAmount(notShownHere, entry.currency) }));
+  // Part of it already shows in the amount ("before refund"): the line says the WHOLE refund, the same figure as the edit window's
+  // "Refunded … of …" (testers 2.75.0, Lucho: Home said 80 where the window said 120, it left out the person's own part).
+  if (notShownHere > 0.004) bits.push(Number(entry.refund_folded) > 0
+    ? tr("refund.rowRefundedAll", { amount: formatAmount(refundR2_(Number(entry.refunded || 0)), entry.currency) })
+    : tr("refund.rowRefunded", { amount: formatAmount(notShownHere, entry.currency) }));
   if (Number(entry.refund_expected) > 0) bits.push(tr("refund.rowOnTheWay", { amount: formatAmount(Number(entry.refund_expected), entry.currency) }));
   return bits.length ? `<div class="entry-desc">${escapeHtml(bits.join(" · "))}</div>` : "";
 }
@@ -7107,7 +7114,13 @@ function updateRefundField_() {
   document.getElementById("refund-list-btn").hidden = !(refunded > 0.004);
   field.hidden = line.hidden && btn.hidden;
 }
-document.getElementById("refund-open-btn").addEventListener("click", () => { if (editingRefundEntry_) openRefundSheet_(editingRefundEntry_); });
+// An entry opened from a list that does not carry its friends' shares (Home's search results, testers 2.75.0: the refund was not divided)
+// is fetched first, so a shared purchase's refund is always divided as it was bought.
+const refundNeedsFetch_ = (e) => e && e.type === "expense" && !Array.isArray(e.splits);
+document.getElementById("refund-open-btn").addEventListener("click", () => {
+  if (!editingRefundEntry_) return;
+  if (refundNeedsFetch_(editingRefundEntry_)) openRefundForId_(editingRefundEntry_.id); else openRefundSheet_(editingRefundEntry_);
+});
 // "See the refunds": a same-month refund has no row of its own on Home (choice C), so it is reached from its purchase. A tap opens it.
 document.getElementById("refund-list-btn").addEventListener("click", async () => {
   const p = editingRefundEntry_;
@@ -7223,7 +7236,7 @@ document.getElementById("refund-pick-close").addEventListener("click", () => { d
 
 // The "+" form's Save when a purchase was chosen: the typed income becomes that purchase's refund (same rule as the Refund window).
 async function saveRefundFromEntryForm_() {
-  const p = refundOfPick_;
+  let p = refundOfPick_;
   if (!p || editingEntryId || selectedType !== "income" || document.getElementById("refund-of-field").hidden) return false;
   const errorEl = document.getElementById("form-error");
   errorEl.textContent = "";
@@ -7249,7 +7262,11 @@ async function saveRefundFromEntryForm_() {
   resetEntryFormFields_();
   if (newEntrySheetOpen_) closeNewEntrySheet_();
   clearEntryDraft_();
-  // A shared purchase: the Refund window opens filled in, so how it is divided is seen before anything is saved.
+  // A shared purchase: the Refund window opens filled in, so how it is divided is seen before anything is saved. A purchase picked from a
+  // list that does not carry its shares is fetched first (testers 2.75.0), so a shared one is never saved undivided.
+  if (refundNeedsFetch_(p)) {
+    try { const fresh = ((await callApi("listEntries", { entryIds: [p.id] })) || [])[0]; if (fresh) p = fresh; } catch (err) { /* the server divides by what it has */ }
+  }
   if (Object.keys(refundShares_(p)).length > 1) {
     openRefundSheet_(p, { amount });
     const to = document.getElementById("refund-to");
@@ -17829,6 +17846,9 @@ async function finishWelcome_() {
     else openWelcomeShare_(() => offerTour_(reloadAfter));   // the last welcome question (step 5 of 5): share app speed with the owner
   };
   // Which inbox is read, and how other banks' e-mails get there, is a "Getting started" step on Home (renderFirstSteps_), not a sheet here.
+  // The save is done: the spinner goes before the last question and the tour offer, so they never sit over "Setting up your app…"
+  // (testers 2.75.0: it looked as if the app were still loading while it asked).
+  welcomeEl_("welcome-saving").hidden = true;
   toTour();
 }
 waEl_("wa-name").addEventListener("input", () => { welcome_.ownName = waEl_("wa-name").value; waEl_("wa-welcome-error").textContent = ""; });   // survives a redraw of the screen
@@ -17972,6 +17992,19 @@ function showTourCard_(i, scroll) {
     });
   }
   if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, ctx);
+  fitTourEnd_(tour_.slides[i]);
+}
+// The last card's buttons stay pinned at the bottom; its picture is made smaller so it ends above them instead of under them (testers
+// 2.75.0, Sol: on a 375 × 667 phone the buttons covered 206 px of it). Never under 45% (a very short screen scrolls the rest).
+function fitTourEnd_(sl) {
+  const end = sl && sl.el.querySelector(".tour-end");
+  if (!end || sl.stage.hidden) return;
+  requestAnimationFrame(() => {
+    sl.stage.style.zoom = "";
+    const top = sl.stage.getBoundingClientRect().top, h = sl.stage.getBoundingClientRect().height;
+    const avail = sl.el.getBoundingClientRect().bottom - end.getBoundingClientRect().height - 12 - top;
+    if (h > avail && avail > 0) sl.stage.style.zoom = String(Math.max(0.45, Math.floor((avail / h) * 100) / 100));
+  });
 }
 // "Swipe to go on" (owner, 2026-11-03; 2026-11-06: no limit, and not only after the animation's last step): while the person stays on the first card
 // the card slides a little to the left, the next one peeks in, the "Swipe to continue" line moves along, and it springs back. No button, because
@@ -21757,11 +21790,11 @@ function openMoveModal_(fromId) {
 }
 function closeMoveModal_() { document.getElementById("move-modal-backdrop").hidden = true; moveFromId_ = null; moveReq_++; }
 document.getElementById("move-modal-close").addEventListener("click", closeMoveModal_);
+// The account's window stays under the Move sheet, so its ✕ goes back to the account (testers 2.75.0, Tomás); a move that goes
+// ahead closes both (the account is deleted).
 document.getElementById("pm-move-btn").addEventListener("click", () => {
   if (!pmModalState || !pmModalState.id) return;
-  const id = pmModalState.id;
-  closePmModal_();
-  openMoveModal_(id);
+  openMoveModal_(pmModalState.id);
 });
 document.getElementById("move-to").addEventListener("change", async (e) => {
   const toId = e.target.value, box = document.getElementById("move-summary"), btn = document.getElementById("move-save-btn");
@@ -21803,6 +21836,9 @@ document.getElementById("move-to").addEventListener("change", async (e) => {
       + moveMergeHtml_(p)
       + `<div id="move-nomerge"${p.merge ? " hidden" : ""}>`
       + (extra.length ? `<p class="stmt-note warn">${escapeHtml(tr("move.currencyWarn", { currencies: extra.join(", "), name: p.to.nickname }))}</p>` : "")
+      // Two bank accounts in different currencies that can't be joined only because a bank is missing: said, with where to set it (testers 2.75.0, Carlos).
+      + (!p.merge && extra.length && from.type === "debit" && to.type === "debit" && (!from.bank_id || !to.bank_id)
+        ? `<p class="hint">${escapeHtml(tr("move.joinNeedsBank"))}</p>` : "")
       + (digits && bank ? `<p class="hint">${escapeHtml(tr("move.digits", { name: p.to.nickname, digits, bank: bank.name }))}</p>` : "")
       + `</div>`
       + bankAsk
@@ -21824,10 +21860,14 @@ document.getElementById("move-summary").addEventListener("click", (e) => {
 // bank accounts of the same bank in different currencies (backend/AccountNumbers.gs); ticked by default, with a name box.
 function moveMergeHtml_(p) {
   if (!p.merge) return "";
-  const numbers = (p.merge.numbers || []).map((n) => `${tr("accounts.digits", { last4: n.digits })} (${n.currency})`).join(" · ");
-  return `<label class="checkbox-row" style="margin-top:10px"><input type="checkbox" id="move-merge" checked><span>${escapeHtml(tr("move.merge"))}</span></label>
+  const list = p.merge.numbers || [];
+  const numbers = list.map((n) => `${tr("accounts.digits", { last4: n.digits })} (${n.currency})`).join(" · ");
+  // "Both numbers" only when there are two (testers 2.75.0, Sol: one account had no number yet).
+  const two = list.length >= 2;
+  return `<label class="checkbox-row" style="margin-top:10px"><input type="checkbox" id="move-merge" checked><span>${escapeHtml(tr(two ? "move.merge" : "move.mergeOne"))}</span></label>
     <div id="move-merge-box">
-      <p class="hint">${escapeHtml(tr("move.mergeHint", { name: p.to.nickname, currencies: p.merge.currencies.join(" + "), numbers }))}</p>
+      <p class="hint">${escapeHtml(two ? tr("move.mergeHint", { name: p.to.nickname, currencies: p.merge.currencies.join(" + "), numbers })
+        : tr(list.length ? "move.mergeHintOne" : "move.mergeHintNone", { name: p.to.nickname, currencies: p.merge.currencies.join(" + "), numbers }))}</p>
       <label for="move-merge-name">${escapeHtml(tr("move.mergeName"))}</label>
       <input type="text" id="move-merge-name" maxlength="60" value="${escapeHtml(p.to.nickname)}">
     </div>`;
@@ -21858,6 +21898,7 @@ document.getElementById("move-save-btn").addEventListener("click", () => {
   const keepBalances = [...moveKeep_];
   const from = meta.paymentMethods.find((p) => p.id === fromId), to = meta.paymentMethods.find((p) => p.id === toId);
   closeMoveModal_();
+  closePmModal_();
   markDeleting_("pm:" + fromId);
   const refresh = async () => {
     try { await loadMeta(); } catch (e) { /* the lists below still refresh */ }

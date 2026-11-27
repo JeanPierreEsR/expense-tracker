@@ -417,11 +417,15 @@ function stmtHistoryPlan_(analysis, platforms) {
 
   stmtGroupAside_(aside);
   // Entries the bank may never have charged (owner's plan, 2026-11-26, Part B): only listed; nothing happens until the person picks.
-  var notCharged = [];
+  var notCharged = [], waitingMissing = [];
   sts.forEach(function (st, si) {
     if (!st.account) return;
     (st.notCharged || []).forEach(function (n) { notCharged.push(Object.assign({ stmt: si, account: st.account.nickname, accountId: st.account.id }, n)); });
+    (st.waitingMissing || []).forEach(function (n) { waitingMissing.push(Object.assign({ stmt: si, account: st.account.nickname }, n)); });
   });
+  // Lines that ARE an entry still waiting in Needs review (the statement proves it; testers 2.75.0, Valeria): only counted, to say so.
+  var waitingProved = 0;
+  sts.forEach(function (st) { (st.lines || []).forEach(function (l) { if (l.status === 'matched' && l.entry && l.entry.status === 'pending') waitingProved++; }); });
   var candidates = imported.concat(aside.filter(function (a) { return a.optIn; }).map(function (a) {
     return { stmt: a.stmt, line: a.line, date: a.date, description: a.description, amount: a.amount, currency: a.currency, account: a.account, kind: 'aside' };
   }));
@@ -429,7 +433,7 @@ function stmtHistoryPlan_(analysis, platforms) {
   return {
     actions: actions,
     summary: {
-      counts: counts, leftOut: leftOut, spent: spent, aside: aside, charges: charges, discounts: discounts, recharges: recharges, flips: flips, notCharged: notCharged, noAccount: noAccount, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
+      counts: counts, leftOut: leftOut, spent: spent, aside: aside, charges: charges, discounts: discounts, recharges: recharges, flips: flips, notCharged: notCharged, waitingMissing: waitingMissing, waitingProved: waitingProved, noAccount: noAccount, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
       candidates: candidates, exchangeSuggestions: stmtExchangeSuggestions_(candidates),
       unknownAccounts: Object.keys(unknownAccounts),
       newAccounts: stmtNewAccountProposals_(sts),   // accounts the statements name that the app does not have yet, with the defaults it would give them

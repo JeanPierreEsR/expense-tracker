@@ -609,13 +609,22 @@ function analyzeStatements(payload) {
     var keptIds = {};
     getAllRows('Statement Lines').forEach(function (r) { if (r.outcome === 'kept' && r.entry_id) keptIds[r.entry_id] = true; });
     var asked = {};
+    // Who shares each entry and how much (the remove note names them; testers 2.75.0).
+    var sharesOf = {}, friendNames = {};
+    getAllRows('Friends').forEach(function (f) { friendNames[f.id] = f.name; });
+    getAllRows('Entry Splits').forEach(function (r) {
+      if (r.entry_id && Number(r.amount) > 0) (sharesOf[r.entry_id] = sharesOf[r.entry_id] || []).push({ name: friendNames[r.friend_id] || '', amount: Number(r.amount) });
+    });
     stmts.forEach(function (s, idx) {
       var pm = pmFor(s.key);
       if (!pm || pm.noAccount || String(pm.id).indexOf('new:') === 0 || pm.type === 'investment' || pm.type === 'cash') return;
       if (s.source === 'app' || (s.kind !== 'csv' && s.verified === false) || Number(s.unclear) > 0) return;
       var sameAccount = out.filter(function (o, j) { var p2 = pmFor(stmts[j].key); return p2 && p2.id === pm.id; }).map(function (o) { return o.lines; });
+      var waitingOut = [];
       out[idx].notCharged = stmtNotCharged_({ pm: pm, statement: s, lines: out[idx].lines, sameAccount: sameAccount, confirmed: confirmedAll,
-        openings: openingsByPm[pm.id] || [], inboundIds: inboundIds, kept: keptIds, locked: lockedIds, asked: asked });
+        openings: openingsByPm[pm.id] || [], inboundIds: inboundIds, kept: keptIds, locked: lockedIds, asked: asked, sharesOf: sharesOf,
+        pending: allEntries.filter(function (e) { return e.status === 'pending'; }), waitingOut: waitingOut });
+      out[idx].waitingMissing = waitingOut;
     });
   }
   tick('done');

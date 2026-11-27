@@ -83,3 +83,39 @@ test("the save refuses an entry that changed since, or a repayment's money", () 
   const id = add({ date: "2019-03-12", amount: 50, description: "Seguro", payment_method_id: card.id });
   assert.throws(() => save(rt, [stmt("4321", [LINE])], [{ type: "remove_not_charged", stmt: 0, entryId: id }], true), /changed since it was read/);
 });
+
+// Fixes after the small testers team (2026-11-26).
+test("an entry changed after the statement was read is not removed (the phone sends what it showed)", () => {
+  const { rt, add, stmt } = setup();
+  const id = add({ date: "2019-03-12", amount: 33, description: "Cafe" });
+  rt.run(`updateRowFields_('Entries', ${JSON.stringify(id)}, { amount: 77 })`);
+  assert.throws(() => save(rt, [stmt("4321", [LINE])], [{ type: "remove_not_charged", stmt: 0, entryId: id, seen: { amount: 33, date: "2019-03-12", description: "Cafe" } }], false), /changed after the statement was read/);
+  assert.equal(Number(row(rt, id).amount), 77);
+});
+
+test("Undo counts entries, not cells, and names a removed entry it could not bring back", () => {
+  const { rt, add, stmt } = setup();
+  const a = add({ date: "2019-03-12", amount: 50, description: "Seguro" });
+  const b = add({ date: "2019-03-14", amount: 30, description: "Gimnasio" });
+  const res = save(rt, [stmt("4321", [LINE])], [{ type: "remove_not_charged", stmt: 0, entryId: a }, { type: "remove_not_charged", stmt: 0, entryId: b }], false);
+  const batches = run(rt, "listDeletedEntries()").batches;
+  run(rt, `forgetDeletedEntries({ ids: [${JSON.stringify(b)}] })`);   // deleted for good meanwhile
+  assert.ok(batches.length);
+  const u = run(rt, `undoStatementBatch({ batchId: ${JSON.stringify(res.batchId)} })`);
+  assert.equal(u.restoredEntries, 1);
+  assert.deepEqual(u.notRestored.map((x) => [x.description, x.amount]), [["Gimnasio", 30]]);
+  assert.ok(row(rt, a));
+});
+
+test("waiting entries: the ones the statement shows are counted, the ones it doesn't are named; a shared entry names who shares it", () => {
+  const { rt, add, stmt, bank } = setup();
+  const friend = rt.api("addFriend", { name: "Ana Lo " + Math.random().toString(36).slice(2, 6) });
+  rt.run(`appendRowObject('Entries', ${JSON.stringify({ id: "w-1", type: "expense", date: "2019-03-03", amount: 12, currency: "PEN", payment_method_id: bank.id, status: "pending", source: "email", description: "Tambo", paid_by: "me" })})`);
+  rt.run(`appendRowObject('Entries', ${JSON.stringify({ id: "w-2", type: "expense", date: "2019-03-09", amount: 24.5, currency: "PEN", payment_method_id: bank.id, status: "pending", source: "email", description: "Cafe Central", paid_by: "me" })})`);
+  add({ date: "2019-03-20", amount: 60, description: "Cena" }, { splits: [{ friend_id: friend.id, amount: 30 }] });
+  const p = plan(rt, [stmt("4321", [LINE])]);
+  assert.equal(p.summary.waitingProved, 1);
+  assert.deepEqual(p.summary.waitingMissing.map((w) => w.description), ["Cafe Central"]);
+  const cena = p.summary.notCharged.find((n) => n.description === "Cena");
+  assert.equal(cena.shares[0].amount, 30);
+});

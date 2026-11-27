@@ -115,6 +115,7 @@
     });
     const loaded = [refreshStatementCoverage(), refreshStatementGaps(), refreshStatementBatches(), refreshStatementInbox()];
     screenLoaded = Promise.allSettled(loaded);
+    stmtUnfinishedNote_();
     renderSteps();
     // Loading standard: the tabs and "Loading…" first; everything below appears together once it has all arrived.
     $("stmt-head-card").dataset.loading = tr("common.loading");
@@ -2610,9 +2611,10 @@
     // An entry no line shows: removed, moved to another account, or kept (never asked again). Nothing until the person picks.
     (p.summary.notCharged || []).forEach((n, k) => {
       const pick = ncOf_(k);
-      if (pick === "remove") chargeActions.push({ type: "remove_not_charged", stmt: n.stmt, entryId: n.id });
-      else if (pick === "keep") chargeActions.push({ type: "keep_not_charged", stmt: n.stmt, entryId: n.id });
-      else if (pick.startsWith("move:")) chargeActions.push({ type: "move_not_charged", stmt: n.stmt, entryId: n.id, pmId: pick.slice(5) });
+      const seen = { amount: n.amount, date: n.date, description: n.description };   // the server refuses an entry changed since (testers 2.75.0)
+      if (pick === "remove") chargeActions.push({ type: "remove_not_charged", stmt: n.stmt, entryId: n.id, seen });
+      else if (pick === "keep") chargeActions.push({ type: "keep_not_charged", stmt: n.stmt, entryId: n.id, seen });
+      else if (pick.startsWith("move:")) chargeActions.push({ type: "move_not_charged", stmt: n.stmt, entryId: n.id, pmId: pick.slice(5), seen });
     });
     // A card charge lower than a purchase in the app (a discount): the purchase takes the bank's amount, or the line is a new purchase.
     (p.summary.discounts || []).forEach((d, k) => {
@@ -2722,17 +2724,22 @@
     if (!all.length) return "";
     const id = "statement-history-notcharged";
     const todo = all.filter((n, k) => !ncDone_(k)).length;
+    // All of one account: named once under the title, not on every row (testers 2.75.0, Tomás).
+    const oneAccount = new Set(all.map((n) => n.account)).size === 1 ? all[0].account : "";
     const rows = all.map((n, k) => {
       const pick = ncOf_(k), moving = pick === "move" || pick.startsWith("move:");
-      const why = n.reason ? `<p class="stmt-note warn" style="margin:6px 0 0">${escapeHtml(tr("hist.nc.why." + n.reason))}</p>` : "";
-      const shared = n.shared ? `<p class="hint">${escapeHtml(tr("hist.nc.shared"))}</p>` : "";
+      const whyTxt = [n.reason && n.reason !== "twice" ? tr("hist.nc.why." + n.reason) : "", n.twinDate ? tr("hist.nc.why.twiceOf", { date: fmtDate(n.twinDate, true) }) : ""].filter(Boolean).join(" ");
+      const why = whyTxt ? `<p class="stmt-note warn" style="margin:6px 0 0">${escapeHtml(whyTxt)}</p>` : "";
+      // Who owes how much less once it goes (testers 2.75.0, Lucho): named when the server sent the shares.
+      const sharesTxt = (n.shares || []).map((x) => `${x.name} ${fmtMoney(n.currency, x.amount)}`).join(", ");
+      const shared = n.shared ? `<p class="hint">${escapeHtml(sharesTxt ? tr("hist.nc.sharedWho", { list: sharesTxt }) : tr("hist.nc.shared"))}</p>` : "";
       const picker = moving ? `<select class="stmt-nc-account" data-ncpm="${k}" style="margin-top:6px">${ncAccountOptions_(n, pick.startsWith("move:") ? pick.slice(5) : "")}</select>` : "";
-      const body = `${why}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-nc="${k}" data-pick="remove"`, pick === "remove", tr("hist.nc.remove"))}${modeButton(`data-nc="${k}" data-pick="move"`, moving, tr("hist.nc.move"))}${modeButton(`data-nc="${k}" data-pick="keep"`, pick === "keep", tr("hist.nc.keep"))}</div>${picker}${pick === "remove" ? shared : ""}`;
-      return { n, html: lineRow({ date: n.date, description: n.description || tr("type." + n.type), amount: n.effect, currency: n.currency }, `${escapeHtml(n.account)}${body}`) };
+      const body = `${why}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-nc="${k}" data-pick="remove"`, pick === "remove", tr("hist.nc.remove"))}${modeButton(`data-nc="${k}" data-pick="move"`, pick.startsWith("move:"), tr("hist.nc.move"))}${modeButton(`data-nc="${k}" data-pick="keep"`, pick === "keep", tr("hist.nc.keep"))}</div>${picker}${pick === "remove" ? shared : ""}`;
+      return { n, html: lineRow({ date: n.date, description: n.description || tr("type." + n.type), amount: n.effect, currency: n.currency }, `${oneAccount ? "" : escapeHtml(n.account)}${body}`) };
     });
     // Strongest first (the server's order: a bank e-mail or Apple Pay, a possible double), then oldest first.
     return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.nc.title"))} <span class="stmt-count">${all.length}</span>${toDecideBadge_(todo)}</summary>
-      <p class="hint">${escapeHtml(tr("hist.nc.hint"))}</p>${rows.map((r) => r.html).join("")}</details>`;
+      <p class="hint">${escapeHtml(tr("hist.nc.hint"))}</p>${oneAccount ? `<p class="hint"><b>${escapeHtml(tr("hist.nc.account", { account: oneAccount }))}</b></p>` : ""}${rows.map((r) => r.html).join("")}</details>`;
   }
 
   function flipOf(k) {
@@ -2767,9 +2774,11 @@
           + `<div class="stmt-choices" style="padding-left:0">${modeButton(`data-flip="${k}" data-pick="add"`, pick === "add", tr("hist.flip.not"))}</div>`;
       }
       const unpicked = !pick ? `<p class="stmt-note info" style="margin:6px 0 0">${escapeHtml(tr("hist.charge.unpicked"))}</p>` : "";
-      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${unpicked}`);
+      // The other statement's line of the same transfer (both accounts read together): one entry, turned around once.
+      const twin = pick && pick !== "add" && all.some((x, j) => j !== k && flipOf(j) === pick && byDate_(x, d) < 0) ? `<p class="hint" style="margin:6px 0 0">${escapeHtml(tr("hist.flip.sameTransfer"))}</p>` : "";
+      return lineRow({ date: d.date, description: d.description, amount: d.amount, currency: d.currency }, `${escapeHtml(d.account)}${body}${twin}${unpicked}`);
     }).join("");
-    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.flip.title"))} <span class="stmt-count">${items.length}</span>${toDecideBadge_(todo)}</summary>
+    return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.flip.title"))} <span class="stmt-count">${new Set(items.map(({ d, k }) => flipOf(k) || "l" + k)).size}</span>${toDecideBadge_(todo)}</summary>
       <p class="hint">${escapeHtml(tr("hist.flip.hint"))}</p>${rows}</details>`;
   }
 
@@ -2842,6 +2851,7 @@
 
   // What the summary shows, worked out from the final list of actions so it always matches what will be saved.
   function historyCounts() {
+    const flipIds = new Set();
     const c = { loans: 0, charges: 0, discounts: 0, flips: 0, ncRemoved: 0, ncMoved: 0, ncKept: 0, recharges: 0, currencyFixed: 0, accountsFilled: 0, expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, legs: 0, investments: 0, pendingInvestments: 0, pending: 0, left: 0, exchanges: 0, fees: 0, linked: 0, balances: 0, spent: {} };
     historyActions().forEach((a) => {
       if (a.type === "add_history_expense") {
@@ -2863,7 +2873,7 @@
       else if (a.type === "set_balance") c.balances++;
       else if (a.type === "fill_charge") c.charges++;
       else if (a.type === "use_bank_amount") c.discounts++;
-      else if (a.type === "fix_entry_type") c.flips++;
+      else if (a.type === "fix_entry_type") { if (!flipIds.has(a.entryId)) c.flips++; flipIds.add(a.entryId); }   // a transfer on two statements is ONE entry
       else if (a.type === "remove_not_charged") c.ncRemoved++;
       else if (a.type === "move_not_charged") c.ncMoved++;
       else if (a.type === "keep_not_charged") c.ncKept++;
@@ -3374,6 +3384,10 @@
     if (left.possible) notes.push(tr("hist.left.possible", { n: left.possible }));
     if (left.noAccount && stillUnknown.length) notes.push(tr("hist.left.noAccount", { n: left.noAccount, keys: stillUnknown.join(", ") }));
     if (left.handled) notes.push(tr("hist.left.handled", { n: left.handled }));
+    // Entries still waiting in Needs review (testers 2.75.0, Valeria): the ones the statement proves, and the ones it does not show.
+    if (summary.waitingProved) notes.push(tr("hist.left.waitingProved", { n: summary.waitingProved }));
+    const wm = summary.waitingMissing || [];
+    if (wm.length) notes.push(tr("hist.left.waitingMissing", { n: wm.length, list: wm.slice(0, 3).map((x) => `${x.description || tr("type." + x.type)} (${fmtDate(x.date, true)})`).join(", ") + (wm.length > 3 ? "…" : "") }));
     const pre = newAccountsHtml(proposals) + addedAccountsHtml();
     const readyHtml = noAccountHtml() + chargesHtml("ready") + rechargesHtml("ready") + discountsHtml("ready") + flipsHtml("ready");
     const decideHtml = flipsHtml("decide") + notChargedHtml() + discountsHtml("decide") + chargesHtml("decide") + rechargesHtml("decide") + peopleHtml() + incomeHtml()
@@ -3407,7 +3421,7 @@
       `<span>❓ ${escapeHtml(tr("hist.cnt.decide", { n: nDecide }))}</span>`].join(" · ")}</p>`;
     out.innerHTML = pre + `<p class="stmt-verdict good">${escapeHtml(tr("hist.ready"))}</p>${counters}
       <ul style="list-style:disc;margin:6px 0;padding-left:20px">${lines.map(sumLi_).join("")}</ul>
-      ${newLinesHtml_()}${range}<p class="hint">${escapeHtml(tr(!usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategory" : usable.every((u) => u.catLeft === 0) ? "hist.categoryAsNamed" : "hist.noCategoryUnlessNamed"))}</p>${noteHtml}
+      ${newLinesHtml_()}${range}${c.entries ? `<p class="hint">${escapeHtml(tr(!usable.some((u) => u.result.lines.some((l) => l.category)) ? "hist.noCategory" : usable.every((u) => u.catLeft === 0) ? "hist.categoryAsNamed" : "hist.noCategoryUnlessNamed"))}</p>` : ""}${noteHtml}
       ${planMatchesHtml_()}${dueAskHtml_()}
       <button type="button" class="primary" id="statement-history-save">${escapeHtml(tr("hist.add"))}</button>`;
   }
@@ -3424,7 +3438,7 @@
     if (!historyPlan || !historyActions().length) return;
     const btn = $("statement-history-save");
     const status = $("statement-review-status");
-    const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges + hc.accountsFilled + hc.flips + hc.ncMoved;
+    const hc = historyCounts(), adding = hc.entries, updating = hc.charges + hc.discounts + hc.recharges + hc.accountsFilled;
     // Purchases already in the app that take the card's figure are a change too: never say "nothing is added" about them alone.
     // Both when a statement adds AND corrects purchases already in the app (Carlos, 2026-11-10: only the added ones were named).
     // Another app's export brings its categories, and after saving the app names any left without one (hist.savedCategoriesMissed),
@@ -3435,9 +3449,12 @@
     const addText = (confirming > 0 ? tr(screenMode === "import" ? "hist.confirmImport" : "hist.confirm", { n: confirming }) : "")
       + (waiting > 0 ? (confirming > 0 ? " " : "") + tr("hist.confirmWaiting", { n: waiting }) : "");
     // Entries the bank never charged that the person removes (Part B) are said apart: removing is not "updating".
+    // Entries turned around and entries removed (Part A / B) are said by name, not as "updated with what the statement shows" (testers 2.75.0).
+    const extra = [hc.flips ? tr("hist.confirmFlips", { n: hc.flips }) : "", hc.ncMoved ? tr("hist.confirmMovedNc", { n: hc.ncMoved }) : "",
+      hc.ncRemoved ? tr("hist.confirmRemoveNc", { n: hc.ncRemoved }) : ""].filter(Boolean).join(" ");
     const askText = (adding ? addText + (updating ? " " + tr("hist.confirmAlsoUpdate", { n: updating }) : "")
-      : updating ? tr("hist.confirmUpdate", { n: updating }) : hc.ncRemoved ? "" : tr("hist.confirmKeep"))
-      + (hc.ncRemoved ? (adding || updating ? " " : "") + tr("hist.confirmRemoveNc", { n: hc.ncRemoved }) : "");
+      : updating ? tr("hist.confirmUpdate", { n: updating }) : extra ? tr("hist.confirmNothingNew") : tr("hist.confirmKeep"))
+      + (extra ? " " + extra : "");
     // A starting balance this save corrects (owner's plan, step 3): said too, since it moves every balance after it.
     const coveredNow = coveredLines(historyActions(false));
     // (an accepted correction made only of "already charged" purchases leaves the number as typed: not counted as a correction)
@@ -3468,7 +3485,9 @@
     const planLinks = planLinksChosen_();   // read before the preview is cleared
     try {
       await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
+      stmtSavingMark_(true);   // the app closed before the answer? the next visit says so (testers 2.75.0, Nico)
       const res = await callApi("applyStatementDecisions", payload(false));
+      stmtSavingMark_(false);
       lastBatchId = res.batchId;
       practiceINote_("saved", res.batchId);
       const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0) + (res.created.investments || 0) + (res.created.pending || 0) + (res.created.loans || 0) + (res.created.repayments || 0);
@@ -3484,6 +3503,7 @@
         + (res.flips ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.flips", { n: res.flips }))}</p>` : "")
         + (res.notChargedRemoved ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.ncRemoved", { n: res.notChargedRemoved }))}</p>` : "")
         + (res.notChargedMoved ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.ncMoved", { n: res.notChargedMoved }))}</p>` : "")
+        + (res.notChargedKept ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.ncKept", { n: res.notChargedKept }))}</p>` : "")
         + (res.recharges ? `<p class="stmt-note info">${escapeHtml(tr("hist.sum.recharges", { n: res.recharges }))}</p>` : "")
         + (notAdded ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedNotAdded", { n: notAdded }))}</p>` : "")
         + (res.categoriesGuessed ? `<p class="stmt-note info">${escapeHtml(tr("hist.savedGuessed", { n: res.categoriesGuessed }))}</p>` : "")
@@ -3518,6 +3538,7 @@
       savedThisRun = true;
       showStep(4);
     } catch (err) {
+      stmtSavingMark_(false);   // a refusal is shown here, so nothing is left unsaid
       // The failure stays on the Preview step, where the Add button is.
       $("statement-plan-status").innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.nothingSaved"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
       renderHistoryPlan();   // brings the Add button back and drops the loading line
@@ -3634,8 +3655,23 @@
     currentDrilldown = null;
   }
 
+  // A statement save the app was closed during (testers 2.75.0, Nico: it saved nothing and said nothing): remembered while it runs, and
+  // said once on the next visit to this screen. The save is ONE server call, so it either went through whole or not at all.
+  const STMT_SAVING_KEY_ = "stmtSaveInFlight";
+  function stmtSavingMark_(on) {
+    try { if (on) localStorage.setItem(STMT_SAVING_KEY_, String(Date.now())); else localStorage.removeItem(STMT_SAVING_KEY_); } catch (e) { /* storage blocked: no note */ }
+  }
+  function stmtUnfinishedNote_() {
+    const old = $("stmt-unfinished-note");
+    if (old) old.remove();
+    let at = 0;
+    try { at = Number(localStorage.getItem(STMT_SAVING_KEY_) || 0); localStorage.removeItem(STMT_SAVING_KEY_); } catch (e) { at = 0; }
+    if (!at) return;
+    $("stmt-head-card").insertAdjacentHTML("beforeend", `<p class="stmt-note warn" id="stmt-unfinished-note">${escapeHtml(tr("stmt.unfinishedSave"))}</p>`);
+  }
+
   async function undoBatch(batchId, trigger) {
-    if (!practiceNoConfirm_(practiceIOwnsBatch_(batchId)) && !await askConfirmApp_(tr("stmt.confirmUndo"), tr("confirmBtn.yes"), { plain: true })) return;
+    if (!practiceNoConfirm_(practiceIOwnsBatch_(batchId)) && !await askConfirmApp_(tr("stmt.confirmUndo"), tr("confirmBtn.undoUpload"), { plain: true })) return;
     // The Undo buttons sit in Recent uploads (a side panel) or in step 4: the result is always shown in step 4.
     savedThisRun = true;
     showStep(4);
@@ -3648,7 +3684,12 @@
     $("statement-review-status").innerHTML = loadingHtml(tr("stmt.undoing"));
     try {
       const r = await callApi("undoStatementBatch", { batchId });
-      $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: r.reverted }))}</p>${r.categoriesRemoved ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategories", { n: r.categoriesRemoved }))}</p>` : ""}${r.categoriesKept ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategoriesKept", { n: r.categoriesKept }))}</p>` : ""}${r.categoriesRenamedBack ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneRenamed", { n: r.categoriesRenamedBack }))}</p>` : ""}`;
+      // Entries put back count once each, the ones removed as never charged included; any that could not come back are named.
+      const putBack = (r.entriesPutBack !== undefined ? r.entriesPutBack : r.reverted) + (r.restoredEntries || 0);
+      const lost = (r.notRestored || []).map((x) => `${x.date ? fmtDate(x.date, true) + " · " : ""}${x.description || ""}${x.currency ? " · " + fmtMoney(x.currency, x.amount) : ""}`);
+      $("statement-review-status").innerHTML = `<p class="stmt-verdict good">${escapeHtml(tr("stmt.undone", { n: r.deletedEntries, r: putBack }))}</p>`
+        + (lost.length ? `<p class="stmt-note warn">${escapeHtml(tr("stmt.undoneNotBack", { n: lost.length }))}<br>${lost.map(escapeHtml).join("<br>")}</p>` : "")
+        + `${r.categoriesRemoved ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategories", { n: r.categoriesRemoved }))}</p>` : ""}${r.categoriesKept ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneCategoriesKept", { n: r.categoriesKept }))}</p>` : ""}${r.categoriesRenamedBack ? `<p class="stmt-note info">${escapeHtml(tr("stmt.undoneRenamed", { n: r.categoriesRenamedBack }))}</p>` : ""}`;
       practiceINote_("undone", batchId);
       lastBatchId = null;
       historyPlan = null;

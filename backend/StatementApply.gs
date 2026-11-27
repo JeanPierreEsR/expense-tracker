@@ -717,6 +717,9 @@ function applyStatementDecisionsCore_(payload) {
       if (!ne) throw new Error(tr_('sa.entryNotFound', { id: a.entryId }));
       if ((ne.type !== 'expense' && ne.type !== 'income') || ne.status !== 'confirmed' || ne.payment_method_id !== npm.id) throw new Error(tr_('sa.notChargedMismatch'));
       if (notChargedDone[ne.id]) throw new Error(tr_('sa.twoActions'));
+      // What the preview showed (testers 2.75.0: an entry edited after reading was still removed): amount, date and description.
+      if (a.seen && (Math.abs(Number(a.seen.amount) - Number(ne.amount)) > 0.004 || String(a.seen.date || '') !== String(ne.date || '').slice(0, 10) ||
+          String(a.seen.description || '') !== String(ne.description || ''))) throw new Error(tr_('sa.notChargedChanged', { name: String(ne.description || '') }));
       notChargedDone[ne.id] = true;
       if (a.type === 'keep_not_charged') {
         outcomes.push({ id: Utilities.getUuid(), line_key: 'kept-' + ne.id, account_key: covKey_(ns.key), period_end: (ns.period || {}).end || '',
@@ -1008,9 +1011,14 @@ function applyStatementDecisionsCore_(payload) {
   // Home's bulk delete, so each has its safety copy in Recently deleted; Undo restores it from there.
   if (notChargedRemove.length) {
     if (ROWS_MEMO_) { delete ROWS_MEMO_['Entries']; delete ROWS_MEMO_['Entry Splits']; delete ROWS_MEMO_['Loans']; }
+    var removedWhat = {};
+    notChargedRemove.forEach(function (id) {
+      var r = getEntryById_(id);
+      if (r) removedWhat[id] = JSON.stringify({ description: String(r.description || ''), amount: Number(r.amount), currency: r.currency || homeCurrency_(), date: String(r.date || '').slice(0, 10) });
+    });
     var gone = deleteEntries({ ids: notChargedRemove });
     (gone.deleted || []).forEach(function (id) {
-      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: id, field: '__removed__', old_value: '', new_value: String(gone.batch_id || ''), created_at: now });
+      changes.push({ id: Utilities.getUuid(), batch_id: batchId, sheet: 'Entries', row_id: id, field: '__removed__', old_value: removedWhat[id] || '', new_value: String(gone.batch_id || ''), created_at: now });
     });
     report.notChargedRemoved = (gone.deleted || []).length;
     if ((gone.kept || []).length) report.warnings.push(tr_('sa.notChargedLinked'));
@@ -1106,7 +1114,7 @@ function undoStatementBatch(payload) {
   var eid = eheaders.indexOf('id');
   var rowById = {};
   evalues.forEach(function (r, i) { rowById[String(r[eid])] = i; });
-  var touched = {};
+  var touched = {}, backIds = {};   // backIds: the ENTRIES put back as they were (one per entry, however many cells; testers 2.75.0)
   changes.filter(function (c) { return c.sheet === 'Entries' && c.field.indexOf('__') !== 0; }).forEach(function (c) {
     var i = rowById[c.row_id], ci = eheaders.indexOf(c.field);
     if (i === undefined || ci === -1) { res.skipped++; return; }
@@ -1114,20 +1122,33 @@ function undoStatementBatch(payload) {
     evalues[i][ci] = c.old_value;
     touched[c.field] = true;
     res.reverted++;
+    backIds[c.row_id] = true;
   });
+  res.entriesPutBack = Object.keys(backIds).length;
   Object.keys(touched).forEach(function (f) {
     var ci = eheaders.indexOf(f);
     esheet.getRange(2, ci + 1, evalues.length, 1).setValues(sheetSafeRows_(evalues.map(function (r) { return [r[ci]]; })));
   });
   if (Object.keys(touched).length) bumpStructureVersion_();   // bulk column write — phones reload fully
   // Entries this upload removed as never charged (Part B): back from their safety copy.
-  var removedByBatch = {};
+  // One deleted for good from Recently deleted meanwhile cannot come back: it is named (testers 2.75.0: Undo said nothing).
+  var removedByBatch = {}, removedInfo = {};
   changes.filter(function (c) { return c.sheet === 'Entries' && c.field === '__removed__' && c.new_value; }).forEach(function (c) {
     (removedByBatch[c.new_value] = removedByBatch[c.new_value] || []).push(c.row_id);
+    try { removedInfo[c.row_id] = JSON.parse(c.old_value || '{}'); } catch (e) { removedInfo[c.row_id] = {}; }
   });
+  res.restoredEntries = 0;
+  res.notRestored = [];
   Object.keys(removedByBatch).forEach(function (b) {
     var back = restoreDeletedEntries({ batch_id: b, ids: removedByBatch[b] });
-    res.restoredEntries = (res.restoredEntries || 0) + (back.restored || []).length;
+    var ok = {};
+    (back.restored || []).concat((back.skipped || []).map(function (x) { return x.id; })).forEach(function (id) { ok[id] = true; });
+    res.restoredEntries += (back.restored || []).length;
+    removedByBatch[b].forEach(function (id) {
+      if (ok[id]) return;
+      var info = removedInfo[id] || {};
+      res.notRestored.push({ description: String(info.description || ''), amount: info.amount, currency: String(info.currency || ''), date: String(info.date || '') });
+    });
   });
   // A charge this upload filled in is pending again: a shared expense's split goes back to what was paid (its debts already are).
   var chargeMarks = changes.filter(function (c) { return c.sheet === 'Entries' && c.field === '__charge_fill__'; });
@@ -1360,10 +1381,10 @@ function listStatementBatches(payload) {
   });
   var created = {};
   getAllRows('Entries').forEach(function (e) { if (byBatch[e.import_batch_id]) created[e.import_batch_id] = (created[e.import_batch_id] || 0) + 1; });
-  var changed = {};
-  getAllRows('Statement Changes').forEach(function (c) { if (c.sheet === 'Entries' && byBatch[c.batch_id]) changed[c.batch_id] = (changed[c.batch_id] || 0) + 1; });
+  var changed = {};   // batch -> { entry id: true }: entries changed (or removed), each counted once however many cells (testers 2.75.0)
+  getAllRows('Statement Changes').forEach(function (c) { if (c.sheet === 'Entries' && byBatch[c.batch_id]) (changed[c.batch_id] = changed[c.batch_id] || {})[c.row_id] = true; });
   return Object.keys(byBatch).map(function (k) {
-    var b = byBatch[k]; b.entriesCreated = created[k] || 0; b.entriesChanged = changed[k] || 0; return b;
+    var b = byBatch[k]; b.entriesCreated = created[k] || 0; b.entriesChanged = Object.keys(changed[k] || {}).length; return b;
   }).sort(function (x, y) { return x.processed_at < y.processed_at ? 1 : -1; }).slice(0, limit);
 }
 

@@ -216,7 +216,7 @@
       else catIcon(cat, o.cat, "entry-cat-icon");
       cat.appendChild(document.createTextNode(o.name || ctx.tr(CATS[o.cat][1])));
       if (o.desc) h("div", "entry-desc", o.desc, l);
-      h("div", "entry-meta", fmtDay(0) + " · " + ctx.tr("accounts.type.cash"), l);   // the account, as real rows show it
+      h("div", "entry-meta", fmtDay(0) + " · " + (o.acct || ctx.tr("accounts.type.cash")), l);   // the account, as real rows show it (a transfer: the account it left)
       const a = h("div", "entry-amount", null, r);
       h("span", "primary-amt" + (o.sign === "+" ? " income" : ""), o.amt, a);
       if (o.sub) h("span", "original-amt", o.sub, a);
@@ -246,7 +246,7 @@
   // ---- An investment: it arrives in the list as money out to the platform ----
   SCENES.invest = homeArrives((ctx) => ({ dot: "investment", name: ctx.tr("entry.investmentIn", { platform: ctx.tr("scene.platform") }), amt: out(ctx, 500), net: -500 }));
   // ---- A transfer between your own accounts: no sign, and the day's total does not change ----
-  SCENES.transfer = homeArrives((ctx) => ({ dot: "transfer", name: ctx.tr("scene.debit") + " → " + ctx.tr("scene.savings"), amt: ctx.home + " " + ctx.money(200) }));
+  SCENES.transfer = homeArrives((ctx) => ({ dot: "transfer", name: ctx.tr("scene.debit") + " → " + ctx.tr("scene.savings"), acct: ctx.tr("scene.debit"), amt: ctx.home + " " + ctx.money(200) }));
 
   // ---- Programmed income/expenses: the known amounts are listed ----
   function listRow(parent, name, sub, amount, amountSub, enter) {
