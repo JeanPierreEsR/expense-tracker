@@ -158,6 +158,7 @@
     "common.addFriend": { en: "+ Add friend…", es: "+ Agregar amigo…" },
     "common.addFriend.co": { en: "+ Add contact…", es: "+ Agregar contacto…" },
     "common.addTag": { en: "+ Add tag…", es: "+ Agregar etiqueta…" },
+    "tags.chooseTitle": { en: "Choose tags", es: "Elegir etiquetas" },
     "common.save": { en: "Save", es: "Guardar" },
     "common.savedToast": { en: "Saved", es: "Guardado" },
     "banner.saveFailedMoney": { en: { one: "⚠️ {n} save couldn't finish — tap to see it", other: "⚠️ {n} saves couldn't finish — tap to see them" }, es: { one: "⚠️ {n} guardado no se pudo completar: toca para verlo", other: "⚠️ {n} guardados no se pudieron completar: toca para verlos" } },

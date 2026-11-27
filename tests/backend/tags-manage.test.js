@@ -65,3 +65,13 @@ test("tapping a tag lists exactly its confirmed entries, all dates (listEntries 
   assert.match(app, /if \(tagEntriesOn_\(\)\) row\.addEventListener\("click", \(\) => openTagDrilldown_\(t\)\);/);
   assert.match(app, /openDrilldownWithPayload_\(\{ tagId: t\.id \}, t\.name, tr\("tagsScreen\.allDates"\)\);/);
 });
+
+test("tag chips: at most three rows, the last chip 'More…' opens every tag; the same in the + form, Programmed items and Needs review (owner 2026-11-27)", () => {
+  const app = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "..", "docs", "app.js"), "utf8");
+  assert.match(app, /if \(rows\.length <= 3\) return;\n  chips\.forEach\(\(c, i\) => \{ if \(tops\[i\] > rows\[2\]\) c\.hidden = true; \}\);\n  more\.hidden = false;/);
+  for (const box of ["tags-list", "recurring-tags-list", "review-tags-chips"]) {
+    assert.match(app, new RegExp(`renderTagChips_\\(document\\.getElementById\\("${box}"\\), \\{`), box);
+  }
+  // measured against the box: a window that grows from the bottom moves while chips are hidden
+  assert.match(app, /const topIn = \(el\) => Math\.round\(el\.getBoundingClientRect\(\)\.top - box\.getBoundingClientRect\(\)\.top\);/);
+});
