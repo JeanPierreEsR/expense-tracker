@@ -23460,7 +23460,7 @@ function renderTripEstimates_(d) {
     row.className = "recurring-row";
     row.innerHTML = `
       <div>
-        <div class="recurring-row-name">${e.category_icon ? escapeHtml(e.category_icon) + " " : ""}${escapeHtml(e.description || e.category_name)}</div>
+        <div class="recurring-row-name">${catEmojiHtml_(e.category_icon)}${escapeHtml(e.description || e.category_name)}</div>
         <div class="recurring-row-sub">${escapeHtml(listDate_(e.date))}${e.overdue ? " · " + escapeHtml(tr("trips.estimateOverdue")) : ""}</div>
       </div>
       <div class="recurring-row-amount">≈ ${escapeHtml(formatAmount(e.amount, e.currency))}<button type="button" class="add-inline trip-covered-btn">${escapeHtml(tr("trips.covered"))}</button></div>`;
@@ -23728,7 +23728,7 @@ async function loadTripFinder_(lookBack, preFound) {
       row.innerHTML = `
         <input type="checkbox"${e.date < tripStart ? "" : " checked"}>
         <div class="trip-find-text">
-          <div class="recurring-row-name">${e.category_icon ? escapeHtml(e.category_icon) + " " : ""}${escapeHtml(e.description || e.category_name)}</div>
+          <div class="recurring-row-name">${catEmojiHtml_(e.category_icon)}${escapeHtml(e.description || e.category_name)}</div>
           <div class="recurring-row-sub">${escapeHtml(listDate_(e.date))}${e.category_name && e.description ? " · " + escapeHtml(e.category_name) : ""}</div>
         </div>
         <div class="recurring-row-amount">${escapeHtml(formatAmount(e.own_share, e.currency))}</div>`;
@@ -27311,7 +27311,7 @@ function renderRecurringRow_(re) {
   row.innerHTML = `
     ${recurringEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${recurringSelected_.has(re.id) ? " checked" : ""}>` : ""}
     <div>
-      <div class="recurring-row-name">${re.category_icon ? re.category_icon + " " : ""}${escapeHtml(re.description || re.category_name)}</div>
+      <div class="recurring-row-name">${catEmojiHtml_(re.category_icon)}${escapeHtml(re.description || re.category_name)}</div>
       <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.variable ? tr("recurring.variableTag") : ""}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}${recurringTripTag_(re)}${recurringTagPillsHtml_(re)}</div>
     </div>
     <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(renderRecurringAmountHtml_(re)) : renderRecurringAmountHtml_(re)}</div>
@@ -28234,7 +28234,7 @@ function renderVariableSuggestions_(suggestions) {
       : `≈ ${escapeHtml(s.currency)} ${moneyFmt(s.avg_amount)}`;
     box.innerHTML = `
       <div class="expected-recurring-item">
-        <span class="expected-recurring-item-label">${s.category_icon ? s.category_icon + " " : ""}${escapeHtml(s.description)}
+        <span class="expected-recurring-item-label">${catEmojiHtml_(s.category_icon)}${escapeHtml(s.description)}
           <span class="hint" style="display:block;">${escapeHtml(tr("recurring.suggestSub", { category: s.category_name, day: s.typical_day, n: s.months_seen, cur: s.currency, min: moneyFmt(s.min_amount), max: moneyFmt(s.max_amount) }))}</span>
           ${sharedLine}
         </span>
@@ -28774,7 +28774,7 @@ async function renderPausedDecision_() {
     row.className = "paused-row";
     const stoppable = it.frequency !== "once" && !(it.start_date && it.start_date > localTodayISO_());
     row.innerHTML = `
-      <div class="recurring-row-name">${it.category_icon ? escapeHtml(it.category_icon) + " " : ""}${escapeHtml(it.description || it.category_name)}</div>
+      <div class="recurring-row-name">${catEmojiHtml_(it.category_icon)}${escapeHtml(it.description || it.category_name)}</div>
       <div class="recurring-row-sub">${escapeHtml(it.category_name)} · ${escapeHtml(it.currency)} ${moneyFmt(it.amount)}</div>
       <div class="paused-actions">
         <button type="button" class="add-inline" data-act="reactivate">${escapeHtml(tr("paused.reactivate"))}</button>
@@ -30706,6 +30706,9 @@ function linkIconize_(btn) {
   span.innerHTML = lineIcon_(name);
   btn.insertBefore(span, btn.firstChild);
 }
+// A category's emoji in front of words that are not its name (an item's description, "🧾 alquiler"): in a span of its own, so the line-icon
+// swap below never takes it for a status marker (owner, 2026-11-27: Programmed items showed a document icon instead of the category's emoji).
+function catEmojiHtml_(icon) { return icon ? `<span class="cat-emoji">${escapeHtml(icon)}</span> ` : ""; }
 function iconizeTextNode_(node) {
   spinLoadingText_(node);
   const linkBtn = node.parentNode && node.parentNode.nodeType === 1 && node.parentNode.closest("button.add-inline, button.wa-link");
@@ -30713,7 +30716,7 @@ function iconizeTextNode_(node) {
   const m = EMOJI_ICON_RE_.exec(node.nodeValue);
   if (!m) return;
   const parent = node.parentNode;
-  if (!parent || parent.closest("option, select, textarea, .category-tile, .ico")) return;
+  if (!parent || parent.closest("option, select, textarea, .category-tile, .cat-emoji, .ico")) return;
   // The person's content keeps its own emoji (owner, 2026-11-13: "💰 Salary", "🧾 Bank fees" are categories): the words after it
   // are a category's, a trip's or an account's name.
   const rest = node.nodeValue.slice(m[0].length).trim().toLowerCase();
