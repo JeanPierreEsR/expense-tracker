@@ -5102,8 +5102,11 @@ function entryHeadline_(entry) {
   if (entry.type === "transfer" && entry.link && entry.link.friend) {
     const l = entry.link;
     const paidThem = l.direction === "i_owe_them"; // repayment: I paid them; loan: they lent me
+    // A friend's part of a refund is a loan underneath (it nets against what they owed for the purchase), but it reads as what it is
+    // (testers 2.75.0, Lucho: "Loan from Ivo" looked as if Ivo had lent money).
     const text = l.kind === "repayment"
       ? tr(paidThem ? "entry.repaymentTo" : "entry.repaymentFrom", { friend: l.friend })
+      : l.refund_of && paidThem ? tr("entry.refundPart", { friend: l.friend })
       : tr(paidThem ? "entry.loanFrom" : "entry.loanTo", { friend: l.friend });
     return { title: `<span class="type-dot" data-type="transfer"></span>${escapeHtml(text)}`, meta: entryAccountMeta_(entry) };
   }
@@ -17989,6 +17992,19 @@ function showTourCard_(i, scroll) {
     });
   }
   if (typeof TourScenes !== "undefined") TourScenes.play(tour_.slides[i].key, tour_.slides[i].stage, ctx);
+  fitTourEnd_(tour_.slides[i]);
+}
+// The last card's buttons stay pinned at the bottom; its picture is made smaller so it ends above them instead of under them (testers
+// 2.75.0, Sol: on a 375 × 667 phone the buttons covered 206 px of it). Never under 45% (a very short screen scrolls the rest).
+function fitTourEnd_(sl) {
+  const end = sl && sl.el.querySelector(".tour-end");
+  if (!end || sl.stage.hidden) return;
+  requestAnimationFrame(() => {
+    sl.stage.style.zoom = "";
+    const top = sl.stage.getBoundingClientRect().top, h = sl.stage.getBoundingClientRect().height;
+    const avail = sl.el.getBoundingClientRect().bottom - end.getBoundingClientRect().height - 12 - top;
+    if (h > avail && avail > 0) sl.stage.style.zoom = String(Math.max(0.45, Math.floor((avail / h) * 100) / 100));
+  });
 }
 // "Swipe to go on" (owner, 2026-11-03; 2026-11-06: no limit, and not only after the animation's last step): while the person stays on the first card
 // the card slides a little to the left, the next one peeks in, the "Swipe to continue" line moves along, and it springs back. No button, because
@@ -21774,11 +21790,11 @@ function openMoveModal_(fromId) {
 }
 function closeMoveModal_() { document.getElementById("move-modal-backdrop").hidden = true; moveFromId_ = null; moveReq_++; }
 document.getElementById("move-modal-close").addEventListener("click", closeMoveModal_);
+// The account's window stays under the Move sheet, so its ✕ goes back to the account (testers 2.75.0, Tomás); a move that goes
+// ahead closes both (the account is deleted).
 document.getElementById("pm-move-btn").addEventListener("click", () => {
   if (!pmModalState || !pmModalState.id) return;
-  const id = pmModalState.id;
-  closePmModal_();
-  openMoveModal_(id);
+  openMoveModal_(pmModalState.id);
 });
 document.getElementById("move-to").addEventListener("change", async (e) => {
   const toId = e.target.value, box = document.getElementById("move-summary"), btn = document.getElementById("move-save-btn");
@@ -21882,6 +21898,7 @@ document.getElementById("move-save-btn").addEventListener("click", () => {
   const keepBalances = [...moveKeep_];
   const from = meta.paymentMethods.find((p) => p.id === fromId), to = meta.paymentMethods.find((p) => p.id === toId);
   closeMoveModal_();
+  closePmModal_();
   markDeleting_("pm:" + fromId);
   const refresh = async () => {
     try { await loadMeta(); } catch (e) { /* the lists below still refresh */ }

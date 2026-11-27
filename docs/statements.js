@@ -115,6 +115,7 @@
     });
     const loaded = [refreshStatementCoverage(), refreshStatementGaps(), refreshStatementBatches(), refreshStatementInbox()];
     screenLoaded = Promise.allSettled(loaded);
+    stmtUnfinishedNote_();
     renderSteps();
     // Loading standard: the tabs and "Loading…" first; everything below appears together once it has all arrived.
     $("stmt-head-card").dataset.loading = tr("common.loading");
@@ -2723,19 +2724,22 @@
     if (!all.length) return "";
     const id = "statement-history-notcharged";
     const todo = all.filter((n, k) => !ncDone_(k)).length;
+    // All of one account: named once under the title, not on every row (testers 2.75.0, Tomás).
+    const oneAccount = new Set(all.map((n) => n.account)).size === 1 ? all[0].account : "";
     const rows = all.map((n, k) => {
       const pick = ncOf_(k), moving = pick === "move" || pick.startsWith("move:");
-      const why = n.reason ? `<p class="stmt-note warn" style="margin:6px 0 0">${escapeHtml(tr("hist.nc.why." + n.reason))}</p>` : "";
+      const whyTxt = [n.reason && n.reason !== "twice" ? tr("hist.nc.why." + n.reason) : "", n.twinDate ? tr("hist.nc.why.twiceOf", { date: fmtDate(n.twinDate, true) }) : ""].filter(Boolean).join(" ");
+      const why = whyTxt ? `<p class="stmt-note warn" style="margin:6px 0 0">${escapeHtml(whyTxt)}</p>` : "";
       // Who owes how much less once it goes (testers 2.75.0, Lucho): named when the server sent the shares.
       const sharesTxt = (n.shares || []).map((x) => `${x.name} ${fmtMoney(n.currency, x.amount)}`).join(", ");
       const shared = n.shared ? `<p class="hint">${escapeHtml(sharesTxt ? tr("hist.nc.sharedWho", { list: sharesTxt }) : tr("hist.nc.shared"))}</p>` : "";
       const picker = moving ? `<select class="stmt-nc-account" data-ncpm="${k}" style="margin-top:6px">${ncAccountOptions_(n, pick.startsWith("move:") ? pick.slice(5) : "")}</select>` : "";
       const body = `${why}<div class="stmt-choices" style="padding-left:0">${modeButton(`data-nc="${k}" data-pick="remove"`, pick === "remove", tr("hist.nc.remove"))}${modeButton(`data-nc="${k}" data-pick="move"`, pick.startsWith("move:"), tr("hist.nc.move"))}${modeButton(`data-nc="${k}" data-pick="keep"`, pick === "keep", tr("hist.nc.keep"))}</div>${picker}${pick === "remove" ? shared : ""}`;
-      return { n, html: lineRow({ date: n.date, description: n.description || tr("type." + n.type), amount: n.effect, currency: n.currency }, `${escapeHtml(n.account)}${body}`) };
+      return { n, html: lineRow({ date: n.date, description: n.description || tr("type." + n.type), amount: n.effect, currency: n.currency }, `${oneAccount ? "" : escapeHtml(n.account)}${body}`) };
     });
     // Strongest first (the server's order: a bank e-mail or Apple Pay, a possible double), then oldest first.
     return `<details class="stmt-group" id="${id}" data-sec="${id}" ${secOpen_(id)}><summary>${escapeHtml(tr("hist.nc.title"))} <span class="stmt-count">${all.length}</span>${toDecideBadge_(todo)}</summary>
-      <p class="hint">${escapeHtml(tr("hist.nc.hint"))}</p>${rows.map((r) => r.html).join("")}</details>`;
+      <p class="hint">${escapeHtml(tr("hist.nc.hint"))}</p>${oneAccount ? `<p class="hint"><b>${escapeHtml(tr("hist.nc.account", { account: oneAccount }))}</b></p>` : ""}${rows.map((r) => r.html).join("")}</details>`;
   }
 
   function flipOf(k) {
@@ -3481,7 +3485,9 @@
     const planLinks = planLinksChosen_();   // read before the preview is cleared
     try {
       await callApi("applyStatementDecisions", payload(true));   // validates first, writes nothing
+      stmtSavingMark_(true);   // the app closed before the answer? the next visit says so (testers 2.75.0, Nico)
       const res = await callApi("applyStatementDecisions", payload(false));
+      stmtSavingMark_(false);
       lastBatchId = res.batchId;
       practiceINote_("saved", res.batchId);
       const made = res.created.transfers + res.created.fees + res.created.purchases + (res.created.income || 0) + (res.created.reversals || 0) + (res.created.investments || 0) + (res.created.pending || 0) + (res.created.loans || 0) + (res.created.repayments || 0);
@@ -3532,6 +3538,7 @@
       savedThisRun = true;
       showStep(4);
     } catch (err) {
+      stmtSavingMark_(false);   // a refusal is shown here, so nothing is left unsaid
       // The failure stays on the Preview step, where the Add button is.
       $("statement-plan-status").innerHTML = `<p class="stmt-verdict bad">${escapeHtml(tr("stmt.nothingSaved"))}</p><p class="hint">${escapeHtml(err.message)}</p>`;
       renderHistoryPlan();   // brings the Add button back and drops the loading line
@@ -3646,6 +3653,21 @@
     $("statement-added-backdrop").hidden = true;
     addedBatch = null;
     currentDrilldown = null;
+  }
+
+  // A statement save the app was closed during (testers 2.75.0, Nico: it saved nothing and said nothing): remembered while it runs, and
+  // said once on the next visit to this screen. The save is ONE server call, so it either went through whole or not at all.
+  const STMT_SAVING_KEY_ = "stmtSaveInFlight";
+  function stmtSavingMark_(on) {
+    try { if (on) localStorage.setItem(STMT_SAVING_KEY_, String(Date.now())); else localStorage.removeItem(STMT_SAVING_KEY_); } catch (e) { /* storage blocked: no note */ }
+  }
+  function stmtUnfinishedNote_() {
+    const old = $("stmt-unfinished-note");
+    if (old) old.remove();
+    let at = 0;
+    try { at = Number(localStorage.getItem(STMT_SAVING_KEY_) || 0); localStorage.removeItem(STMT_SAVING_KEY_); } catch (e) { at = 0; }
+    if (!at) return;
+    $("stmt-head-card").insertAdjacentHTML("beforeend", `<p class="stmt-note warn" id="stmt-unfinished-note">${escapeHtml(tr("stmt.unfinishedSave"))}</p>`);
   }
 
   async function undoBatch(batchId, trigger) {

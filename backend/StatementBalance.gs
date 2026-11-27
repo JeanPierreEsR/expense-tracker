@@ -420,12 +420,15 @@ function stmtNotCharged_(args) {
     if (statementCoversAny_(e.id)) return;
     var eff = signedEffectOnPaymentMethod_(e, pm.id, args.inboundIds);
     if (!eff) return;
-    var twin = (byKey[key(e)] || []).some(function (o) { return o.id !== e.id && Math.abs(stmtDayNumber_(String(o.date).slice(0, 10)) - stmtDayNumber_(d)) <= 2; });
+    // Its look-alike (same amount and place, 2 days apart at most): named on the row, whatever else the row says (testers 2.75.0, Mark).
+    var twinOf = (byKey[key(e)] || []).filter(function (o) { return o.id !== e.id && Math.abs(stmtDayNumber_(String(o.date).slice(0, 10)) - stmtDayNumber_(d)) <= 2; })
+      .sort(function (a, b) { return Math.abs(stmtDayNumber_(String(a.date).slice(0, 10)) - stmtDayNumber_(d)) - Math.abs(stmtDayNumber_(String(b.date).slice(0, 10)) - stmtDayNumber_(d)); })[0];
+    var twin = !!twinOf;
     var reason = String(e.source || '') === 'email' || String(e.source || '') === 'shortcut' || String(e[APPLE_PAY_COLUMN_] || '') ? 'email' : twin ? 'twice' : '';
     var governing = openingForCurrency_(args.openings || [], cur);
     args.asked[e.id] = true;
     items.push({ id: e.id, date: d, description: String(e.description || ''), type: e.type, amount: Number(e.amount), currency: cur,
-      effect: Math.round(eff * 100) / 100, reason: reason, shared: args.locked[e.id] === 'shared', shares: (args.sharesOf || {})[e.id] || undefined,
+      effect: Math.round(eff * 100) / 100, reason: reason, twinDate: twinOf ? String(twinOf.date).slice(0, 10) : undefined, shared: args.locked[e.id] === 'shared', shares: (args.sharesOf || {})[e.id] || undefined,
       counted: !!(governing && entryCountsAfterOpening_(e, governing) && d <= end) });
   });
   items.sort(function (a, b) { return ((b.reason ? 1 : 0) - (a.reason ? 1 : 0)) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0); });
