@@ -183,8 +183,9 @@ test("a client's RUC goes into the movements file next to their income; a bad nu
     payment_method_id: pm(rt), paid_by: client.id });
   const mv = file(rt.api("getAccountantPackage", { month: ym }), "movements");
   const row = mv.find((r) => r.includes("Abono cliente"));
-  assert.equal(row[row.length - 2], "Cliente Prueba");
-  assert.equal(row[row.length - 1], "20123456789");
+  const head = mv[0];   // by name: columns were added after these (2026-11-26)
+  assert.equal(row[head.indexOf("Client / supplier")], "Cliente Prueba");
+  assert.equal(row[head.indexOf("RUC / DNI")], "20123456789");
 });
 
 test("the form offers 'Cash' only for a cash account, and never sends it for another (owner, 2026-11-27)", () => {
@@ -193,4 +194,29 @@ test("the form offers 'Cash' only for a cash account, and never sends it for ano
   assert.match(app, /if \(sel\.value === "cash"\) sel\.value = "";\n    voucherCashOption_\(\)\.remove\(\);/, "taken out of the list (an iPhone shows hidden options)");
   assert.match(app, /pay_method: pay === "cash" && !voucherCashAllowed_\(\) \? "" : pay/);
   assert.match(app, /document\.getElementById\("payment_method"\)\.addEventListener\("change", syncVoucherCash_\);/);
+});
+
+test("detracción and construction contracts in the package (owner, 2026-11-26)", () => {
+  const rt = companyCopy();
+  const project = rt.rows("Projects")[0].id, company = rt.rows("Companies")[0].id;
+  const inc = rt.api("createEntry", { type: "income", date: day(5), amount: 10000, currency: "PEN", category_id: cat(rt, "income"), description: "Factura 001",
+    payment_method_id: pm(rt), paid_by: "me", company_id: company, detraction_amount: 400 });
+  const c = rt.api("saveContract", { project_id: project, supplier_name: "Encofrados Lima", description: "Encofrado", amount: 100000, currency: "PEN", advance_pct: 20, retention_pct: 5 });
+  const labor = rt.rows("Categories").find((x) => x.name === "Labor").id;
+  const pay = (d, amount, cp) => rt.api("createEntry", { type: "expense", date: d, amount, currency: "PEN", category_id: labor, payment_method_id: pm(rt), paid_by: "me", project_id: project, contract_payment: cp });
+  pay(day(6), 20000, { contract_id: c.id, kind: "advance" });
+  const v = pay(day(20), 22500, { contract_id: c.id, kind: "valuation", gross: 30000, advance_amortized: 6000, retention_held: 1500 });
+  const pkg = rt.api("getAccountantPackage", { month: ym });
+  assert.deepEqual(pkg.files.map((f) => f.kind), ["movements", "balances", "ledger", "pending", "contracts"]);
+  const mv = file(pkg, "movements");
+  const h = mv[0];
+  const row = (id, desc) => mv.find((r) => r.includes(desc));
+  assert.equal(Number(row(inc.id, "Factura 001")[h.indexOf("Detracción (PEN)")]), 400);
+  const val = mv.find((r) => r[h.indexOf("Contract payment")] === "Valuation");
+  assert.equal(Number(val[h.indexOf("Amount valued")]), 30000);
+  assert.equal(Number(val[h.indexOf("Advance taken back")]), 6000);
+  assert.equal(Number(val[h.indexOf("Guarantee kept")]), 1500);
+  assert.match(val[h.indexOf("Contract")], /Encofrados Lima/);
+  const ct = file(pkg, "contracts");
+  assert.deepEqual(ct[1].slice(4).map(Number), [100000, 30000, 42500, 30000, 42500, 14000, 1500, 57500]);
 });

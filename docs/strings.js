@@ -3038,7 +3038,7 @@
     "voucher.date": { es: "Fecha de emisión (si no es el mismo día)", en: "Issue date (if not the same day)" },
     "voucher.hint": { es: "Para el paquete del contador. Si lo dejas vacío, el paquete adivina cómo se pagó cuando puede.", en: "For the accountant's package. Left empty, the package guesses how it was paid when it can." },
     "pkg.title": { es: "Paquete de {month} para el contador", en: "Accountant's package for {month}" },
-    "pkg.hint": { es: "Cuatro archivos que se abren en Excel: movimientos, saldos de cuentas, prestamistas y socios, y pendientes.", en: "Four files that open in Excel: movements, account balances, lenders and partners, and what is pending." },
+    "pkg.hint": { es: "Archivos que se abren en Excel: movimientos, saldos de cuentas, prestamistas y socios, pendientes y, si hay, contratos de obra.", en: "Files that open in Excel: movements, account balances, lenders and partners, pending and, when there are any, construction contracts." },
     "pkg.correctedHint": { es: "El mes cambió después del último envío: este va como paquete corregido y dice qué cambió.", en: "The month changed after the last package was sent: this one goes as a corrected package that says what changed." },
     "pkg.email": { es: "Correo del contador", en: "Accountant's email" },
     "pkg.ccMe": { es: "Enviarme una copia", en: "Send me a copy" },
