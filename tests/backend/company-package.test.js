@@ -186,3 +186,11 @@ test("a client's RUC goes into the movements file next to their income; a bad nu
   assert.equal(row[row.length - 2], "Cliente Prueba");
   assert.equal(row[row.length - 1], "20123456789");
 });
+
+test("the form offers 'Cash' only for a cash account, and never sends it for another (owner, 2026-11-27)", () => {
+  const app = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "..", "docs", "app.js"), "utf8");
+  assert.match(app, /function voucherCashAllowed_\(\) \{[\s\S]{0,300}return !!pm && \(isBasicCashPm_\(pm\) \|\| pm\.type === "cash"\);/);
+  assert.match(app, /if \(sel\.value === "cash"\) sel\.value = "";\n    voucherCashOption_\(\)\.remove\(\);/, "taken out of the list (an iPhone shows hidden options)");
+  assert.match(app, /pay_method: pay === "cash" && !voucherCashAllowed_\(\) \? "" : pay/);
+  assert.match(app, /document\.getElementById\("payment_method"\)\.addEventListener\("change", syncVoucherCash_\);/);
+});

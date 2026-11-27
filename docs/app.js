@@ -26510,9 +26510,31 @@ function syncVoucherField_() {
   field.hidden = !(companyCopyOn_() && (selectedType === "expense" || selectedType === "income"));
   const t = document.getElementById("voucher-type").value;
   document.getElementById("voucher-detail").hidden = field.hidden || !t || t === "none";
+  syncVoucherCash_();
+}
+// "Cash" is a choice only when the entry's account is a cash account (owner, 2026-11-27: money from a bank account was never paid in
+// cash). The option is taken out of the list, not hidden: an iPhone shows hidden options anyway. Same test as the package's guess
+// (AccountantPackage.gs pkgPayMethod_): the built-in Cash account or any account of type cash.
+var voucherCashOpt_ = null;   // (var: syncVoucherField_ may run before this line)
+function voucherCashOption_() { return voucherCashOpt_ || (voucherCashOpt_ = document.querySelector('#voucher-pay option[value="cash"]')); }
+function voucherCashAllowed_() {
+  const id = document.getElementById("payment_method").value;
+  const pm = ((meta && meta.paymentMethods) || []).find((p) => String(p.id) === String(id));
+  return !!pm && (isBasicCashPm_(pm) || pm.type === "cash");
+}
+function syncVoucherCash_() {
+  const sel = document.getElementById("voucher-pay");
+  const ok = voucherCashAllowed_();
+  if (ok && !voucherCashOption_().parentNode) sel.insertBefore(voucherCashOption_(), sel.querySelector('option[value="wallet"]'));
+  if (!ok && voucherCashOption_().parentNode) {
+    if (sel.value === "cash") sel.value = "";
+    voucherCashOption_().remove();
+  }
 }
 function setVoucherState_(entry) {
-  document.getElementById("voucher-pay").value = (entry && entry.pay_method) || "";
+  const sel = document.getElementById("voucher-pay");
+  if (!voucherCashOption_().parentNode) sel.insertBefore(voucherCashOption_(), sel.querySelector('option[value="wallet"]'));   // syncVoucherField_ below decides
+  sel.value = (entry && entry.pay_method) || "";
   document.getElementById("voucher-type").value = (entry && entry.receipt_type) || "";
   document.getElementById("voucher-no").value = (entry && entry.receipt_no) || "";
   document.getElementById("voucher-date").value = (entry && String(entry.receipt_date || "").slice(0, 10)) || "";
@@ -26523,10 +26545,14 @@ function voucherFieldsToSend_() {
   if (document.getElementById("voucher-field").hidden) return {};
   const type = document.getElementById("voucher-type").value;
   const keep = type && type !== "none";
-  return { pay_method: document.getElementById("voucher-pay").value, receipt_type: type,
+  const pay = document.getElementById("voucher-pay").value;
+  return { pay_method: pay === "cash" && !voucherCashAllowed_() ? "" : pay, receipt_type: type,
     receipt_no: keep ? document.getElementById("voucher-no").value.trim() : "", receipt_date: keep ? document.getElementById("voucher-date").value : "" };
 }
 document.getElementById("voucher-type").addEventListener("change", syncVoucherField_);
+document.getElementById("payment_method").addEventListener("change", syncVoucherCash_);
+// The account can also be filled in by the app itself (no change event): the list is checked again as it is opened.
+["pointerdown", "focus"].forEach((ev) => document.getElementById("voucher-pay").addEventListener(ev, syncVoucherCash_));
 
 // ---- "Pays expected payment" (an income on a project) ----
 // FIFO by default: a NEW income on a project pre-selects the oldest-due open expected payment of that project in the same
