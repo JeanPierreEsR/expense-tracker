@@ -75,3 +75,26 @@ test("tag chips: at most three rows, the last chip 'More…' opens every tag; th
   // measured against the box: a window that grows from the bottom moves while chips are hidden
   assert.match(app, /const topIn = \(el\) => Math\.round\(el\.getBoundingClientRect\(\)\.top - box\.getBoundingClientRect\(\)\.top\);/);
 });
+
+test("Edit mode deletes several tags in one call; Annual is never deleted; entries and Programmed items only lose the labels (owner 2026-11-27)", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const a = post(rt, "addTag", { name: "Bulk A" }).data;
+  const b = post(rt, "addTag", { name: "Bulk B" }).data;
+  const keep = post(rt, "addTag", { name: "Bulk keep" }).data;
+  const tagged = tagTwo(rt, a.id);
+  tagTwo(rt, keep.id);
+  const entriesBefore = rt.rows("Entries").length;
+  assert.ok(post(rt, "getMeta").data.capabilities.tagsBulkDelete);
+  const out = post(rt, "deleteTags", { ids: [a.id, b.id, "system-annual", "ghost"] }).data;
+  assert.deepEqual([out.tags, out.entries], [2, 2]);
+  const names = rt.rows("Tags").map((t) => t.name);
+  assert.ok(!names.includes("Bulk A") && !names.includes("Bulk B") && names.includes("Bulk keep"));
+  assert.ok(rt.rows("Tags").some((t) => t.id === "system-annual"), "the built-in Annual stays");
+  assert.equal(rt.rows("Entries").length, entriesBefore, "entries stay");
+  assert.ok(!rt.rows("Entry Tags").some((et) => et.tag_id === a.id));
+  assert.ok(rt.rows("Entry Tags").some((et) => et.tag_id === keep.id), "other labels stay");
+  assert.ok(tagged.length === 2);
+  assert.ok(!post(rt, "deleteTags", { ids: ["system-annual"] }).ok, "nothing deletable: refused");
+  const app = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "..", "docs", "app.js"), "utf8");
+  assert.match(app, /saveBehindScreen_\(\(\) => callApi\("deleteTags", \{ ids \}\)/);
+});

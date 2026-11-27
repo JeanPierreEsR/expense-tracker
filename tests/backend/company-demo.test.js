@@ -43,10 +43,15 @@ test("the made-up company: lenders and SUNAT owed, the building's funding, partn
   const owed = co.owed.map((p) => p.name);
   assert.ok(owed.includes("Inversiones Demo EIRL") && owed.includes("Carmen Prestamista Demo"), owed.join());
   assert.ok(co.owed.some((p) => /SUNAT/.test(p.name)), "the withholding kept from the installments paid");
-  assert.deepEqual(co.funding.map((f) => [f.name, f.amount, f.currency]), [["Edificio Los Pinos", 350000, "USD"]], "the closed project is left out");
+  assert.deepEqual(co.funding.map((f) => [f.name, f.amount, f.currency]), [["Edificio Los Pinos", 350000, "USD"], ["Edificio Miraflores", null, "PEN"]], "the closed project is left out; Miraflores not set yet");
   assert.ok(co.partners.length >= 2, "two partners with their contributions");
   assert.equal(e.rows("Entries").filter((x) => x.status === "pending").length, 4);
-  assert.equal(e.rows("Tags").filter((t) => /^Depa /.test(t.name)).length, 40);
+  assert.equal(e.rows("Tags").filter((t) => /^Depa /.test(t.name)).length, 0, "units are not tags");
+  const proj = Object.fromEntries(e.rows("Projects").map((p) => [p.name, p.id]));
+  const units = e.rows("Units");
+  assert.equal(units.filter((u) => u.project_id === proj["Edificio Los Pinos"]).length, 40);
+  assert.equal(units.filter((u) => u.project_id === proj["Edificio Miraflores"]).length, 20);
+  assert.equal(units.filter((u) => u.name === "Depa 101").length, 2, "both buildings have a Depa 101");
   assert.equal(e.rows("Companies").length, 1);
   // Made-up names only: every person in it is marked "Demo" (or is SUNAT's withholding).
   e.rows("Friends").forEach((f) => assert.match(f.name, /Demo|SUNAT/, f.name));

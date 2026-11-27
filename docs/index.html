@@ -433,6 +433,11 @@
             <p class="hint" id="entry-psplit-summary" hidden></p>
             <button type="button" class="add-inline" id="entry-psplit-btn" hidden data-i18n="psplit.button">Split between projects</button>
           </div>
+          <!-- A unit of the chosen project ("Depa 101"; company copies, Units.gs): shown only when that project has units. -->
+          <div id="unit-field" hidden>
+            <label for="entry-unit" data-i18n="field.unit">Unit</label>
+            <select id="entry-unit"></select>
+          </div>
 
           </div>
           <div id="expected-field" hidden>
@@ -2591,6 +2596,8 @@
       </div>
       <div class="budget-modal-body">
         <p class="unit-sum" id="unit-sum"></p>
+        <label for="unit-name" data-i18n="sales.unitName">Name</label>
+        <input type="text" id="unit-name" autocomplete="off" maxlength="40">
         <label for="unit-buyer" data-i18n="sales.buyer">Buyer</label>
         <select id="unit-buyer"></select>
         <input type="text" id="unit-buyer-new" hidden data-i18n-placeholder="sales.buyerNamePh" placeholder="Buyer's name">
@@ -2619,7 +2626,7 @@
           <button type="button" class="add-inline" id="unit-share-text" data-i18n="sales.shareText">Share the payments as text</button>
           <button type="button" class="add-inline" id="unit-share-csv" data-i18n="sales.shareCsv">Share the payments as CSV (Excel)</button>
         </div>
-        <button type="button" class="add-inline unit-remove" id="unit-remove" data-i18n="sales.remove">Remove from this project</button>
+        <button type="button" class="add-inline unit-remove" id="unit-remove" data-i18n="sales.remove">Remove this unit</button>
       </div>
     </div>
   </div>

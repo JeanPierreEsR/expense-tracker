@@ -882,7 +882,7 @@ var SALE_STAGE_CATEGORY_KEYS_ = { reservation: 'reservation_deposits', down_paym
 function saleStagesExpectedByCategory_(bounds, todayStr, categories) {
   var out = {};
   if (!isCompanyCopy_() || !businessOn_()) return out;
-  var rows = getExpectedRows_().filter(function (x) { return x.unit_tag_id && x.stage; });
+  var rows = getExpectedRows_().filter(function (x) { return (x.unit_id || x.unit_tag_id) && x.stage; });
   if (!rows.length) return out;
   var byKey = {};
   categories.forEach(function (c) { if (c.type === 'income' && c.key) byKey[c.key] = c.id; });

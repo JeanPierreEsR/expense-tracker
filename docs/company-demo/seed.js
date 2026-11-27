@@ -17,9 +17,9 @@
   function seed(engine) {
     const api = engine.api;
     api("saveOnboarding", { language: "es", dateOrder: "dmy", homeCurrency: "PEN", currencies: ["USD"] });
-    const setup = api("saveCompanySetup", { sector: "construction", name: "Inmobiliaria Demo SAC", projects: ["Edificio Los Pinos", "Casa Las Flores"] });
+    const setup = api("saveCompanySetup", { sector: "construction", name: "Inmobiliaria Demo SAC", projects: ["Edificio Los Pinos", "Edificio Miraflores", "Casa Las Flores"] });
     const company = setup.company;
-    const [pinos, flores] = setup.projects;
+    const [pinos, miraflores, flores] = setup.projects;
     // A waiting entry written the way the bank e-mails write one (straight into the sheet, no company: the copy adds it).
     const waiting_ = (row) => engine.run("appendRowObject('Entries', " + JSON.stringify(row) + "); ROWS_MEMO_ = null;");
     const where = (p) => ({ company_id: company.id, project_id: p.id });
@@ -44,22 +44,22 @@
     const design = cat("expense", "design_permits", "Design & permits"), notary = cat("expense", "notary_registries", "Notary & registries");
     const fees = cat("expense", "bank_fees", "Bank fees"), interest = cat("expense", "loan_interest", "Loan interest");
 
-    // Units: the building's flats 101-805 as tags; a few sold, with what each buyer pays by stage.
-    const flats = [];
-    for (let floor = 1; floor <= 8; floor++) for (let n = 1; n <= 5; n++) flats.push("Depa " + floor + "0" + n);
-    api("addTagsBulk", { names: flats });
-    const tags = engine.rows("Tags").filter((t) => /^Depa /.test(t.name));
-    api("addProjectUnits", { project_id: pinos.id, tag_ids: tags.map((t) => t.id) });
-    const units = api("listProjectUnits", { project_id: pinos.id }).units;
+    // Units, each building its own (Units.gs): Los Pinos 101-805, Miraflores 101-405 (so both have a "Depa 101"); a few sold, with
+    // what each buyer pays by stage.
+    const flats = (floors) => { const out = []; for (let f = 1; f <= floors; f++) for (let n = 1; n <= 5; n++) out.push("Depa " + f + "0" + n); return out; };
+    api("addProjectUnits", { project_id: pinos.id, names: flats(8) });
+    api("addProjectUnits", { project_id: miraflores.id, names: flats(4) });
+    const unitsOf = { [pinos.id]: api("listProjectUnits", { project_id: pinos.id }).units, [miraflores.id]: api("listProjectUnits", { project_id: miraflores.id }).units };
     const sales = [
-      { unit: "Depa 101", buyer: "Rosa Quispe Demo", price: 98000, paid: [["reservation", 2000, 80], ["down_payment", 19600, 60]] },
-      { unit: "Depa 203", buyer: "Luis Mendoza Demo", price: 105000, paid: [["reservation", 2000, 55], ["down_payment", 21000, 30]] },
-      { unit: "Depa 405", buyer: "Carla Torres Demo", price: 112000, paid: [["reservation", 2000, 20]] },
-      { unit: "Depa 802", buyer: "Jorge Salas Demo", price: 135000, paid: [["reservation", 3000, 9]] }
+      { p: pinos, unit: "Depa 101", buyer: "Rosa Quispe Demo", price: 98000, paid: [["reservation", 2000, 80], ["down_payment", 19600, 60]] },
+      { p: pinos, unit: "Depa 203", buyer: "Luis Mendoza Demo", price: 105000, paid: [["reservation", 2000, 55], ["down_payment", 21000, 30]] },
+      { p: pinos, unit: "Depa 405", buyer: "Carla Torres Demo", price: 112000, paid: [["reservation", 2000, 20]] },
+      { p: pinos, unit: "Depa 802", buyer: "Jorge Salas Demo", price: 135000, paid: [["reservation", 3000, 9]] },
+      { p: miraflores, unit: "Depa 101", buyer: "Elena Ríos Demo", price: 120000, paid: [["reservation", 2500, 40]] },
+      { p: miraflores, unit: "Depa 304", buyer: "Martín Vega Demo", price: 128000, paid: [["reservation", 2500, 25], ["down_payment", 23100, 6]] }
     ];
     sales.forEach((s) => {
-      const u = units.find((x) => x.name === s.unit);
-      const tag = tags.find((t) => t.name === s.unit).id;
+      const u = unitsOf[s.p.id].find((x) => x.name === s.unit);
       api("saveUnit", { id: u.id, buyer_name: s.buyer, price: s.price, currency: "USD", status: s.paid.length > 1 ? "Cuota inicial" : "Separado" });
       const reserve = s.paid[0][1], down = Math.round(s.price * 0.2);
       api("saveUnitStage", { unit_id: u.id, stage: "reservation", amount: reserve, due_date: daysAgo(s.paid[0][2]) });
@@ -67,7 +67,7 @@
       api("saveUnitStage", { unit_id: u.id, stage: "balance", amount: s.price - down, due_date: monthsAhead(6, 30) });
       s.paid.forEach(([stage, amount, ago]) => api("createEntry", Object.assign({ type: "income", date: daysAgo(ago), amount, currency: "USD",
         category_id: cat("income", "", stage === "reservation" ? "Reservation deposits" : "Down payments"),
-        description: (stage === "reservation" ? "Separación " : "Cuota inicial ") + s.unit, payment_method_id: dolares.id, paid_by: "me", tag_ids: [tag] }, where(pinos))));
+        description: (stage === "reservation" ? "Separación " : "Cuota inicial ") + s.unit, payment_method_id: dolares.id, paid_by: "me", unit_id: u.id }, where(s.p))));
     });
 
     // Partners: two of them put money in; one profit distribution with its withholding.
@@ -101,7 +101,7 @@
       const [desc, category, lo, hi] = suppliers[Math.floor(rnd() * suppliers.length)];
       const usd = rnd() < 0.15;
       api("createEntry", Object.assign({ type: "expense", date: daysAgo(day), amount: usd ? between(lo / 3.7, hi / 3.7) : between(lo, hi), currency: usd ? "USD" : "PEN",
-        category_id: category, description: desc, payment_method_id: usd ? dolares.id : soles.id, paid_by: "me" }, where(rnd() < 0.9 ? pinos : flores)));
+        category_id: category, description: desc, payment_method_id: usd ? dolares.id : soles.id, paid_by: "me" }, where(rnd() < 0.65 ? pinos : rnd() < 0.8 ? miraflores : flores)));
     }
     for (let m = 0; m < 3; m++) {
       api("createEntry", Object.assign({ type: "expense", date: daysAgo(5 + 30 * m), amount: 45, currency: "PEN", category_id: fees, description: "Mantenimiento de cuenta",

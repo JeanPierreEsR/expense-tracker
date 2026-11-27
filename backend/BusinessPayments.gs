@@ -63,8 +63,8 @@ function expectedViews_(rows, today) {
   getCompanyRows_().forEach(function (c) { companies[c.id] = c; });
   var people = {};
   getAllRows('Friends').forEach(function (f) { people[f.id] = f; });
-  var tagNames = {};
-  if (rows.some(function (x) { return x.unit_tag_id; })) getAllRows('Tags').forEach(function (t) { tagNames[t.id] = t.name; });
+  var unitNames = {};
+  if (rows.some(function (x) { return x.unit_id; })) unitRows_().forEach(function (u) { unitNames[u.id] = u.name; });
   return rows.map(function (x) {
     var project = projects[x.project_id] || {};
     var company = companies[project.company_id] || {};
@@ -77,7 +77,7 @@ function expectedViews_(rows, today) {
       client_id: x.client_id || '', client_name: (people[x.client_id] || {}).name || '',
       amount: Number(x.amount), currency: x.currency, due_date: x.due_date, invoice_no: x.invoice_no || '', note: x.note || '',
       // A sale stage names its unit and stage (testers 2.68.2: only the buyer showed): "Depa 101 · Separación".
-      unit_name: x.unit_tag_id ? String(tagNames[x.unit_tag_id] || '') : '', stage: x.stage || '',
+      unit_name: x.unit_id ? String(unitNames[x.unit_id] || '') : '', stage: x.stage || '',
       stage_name: x.stage ? tr_('sales.stage.' + x.stage) : '',
       igv_included: String(x.igv_included || '') === 'yes',
       status: x.status || 'open', paid: got, remaining: state === 'open' ? remaining : 0, state: state,
