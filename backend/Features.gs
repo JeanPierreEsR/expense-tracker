@@ -134,6 +134,7 @@ function getCapabilities_() {
     programPending: true,   // addRecurringExpense takes `pending_entry_id`: a waiting (Needs review) entry given a future date in the full form becomes that Programmed item, in the same call
     programSplits: true,   // addRecurringExpense takes `splits` (and saves them in the same call): a future-dated SHARED expense becomes a Programmed item; an older backend keeps it a normal entry
     recurringPayments: true,   // listRecurringPayments: the "Past payments" group of the Programmed item window    // saveEntryAll takes `repeat`: the entry form's "Repeat…" makes a Programmed item from the entry and links it
+    purchaseParts: true,   // split by category: saveEntryAll takes `parts`, getPurchaseParts, one purchase = linked entries (PurchaseParts.gs)
     entrySaveOne: true,   // saveEntryAll: a new / edited / confirmed entry with its split, tags and bill in ONE call (was 2-4 trips to Google); an older backend gets the separate calls
     practiceRemove: true,   // removePracticeData: the first-use practice's cleanup in one call; an older backend makes the phone do it step by step
     startNotYet: true,

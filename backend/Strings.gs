@@ -552,6 +552,11 @@ var BACKEND_STRINGS_ = {
   "loan.fromSharedDelete.co": { en: "This loan came from a split expense — delete that entry instead.", es: "Este préstamo viene de un gasto repartido: elimina ese movimiento." },
   "loan.noDeleteWithRepayment": { en: "This loan has a repayment recorded against it and can't be deleted.", es: "Este préstamo tiene un repago registrado y no se puede eliminar." },
   "loan.entryIsMovement": { en: "This entry is the money movement of a loan — delete or edit that loan from the Loans tab instead.", es: "Este movimiento es el movimiento de dinero de un préstamo: elimina o edita ese préstamo desde la pestaña Préstamos." },
+  "parts.onlyExpense": { en: "Only an expense can be split into categories.", es: "Solo un gasto se puede dividir en categorías." },
+  "parts.notThisOne": { en: "This entry can't be split into categories.", es: "Este movimiento no se puede dividir en categorías." },
+  "parts.badPart": { en: "One of the parts could not be read. Open the entry again and save it.", es: "No se pudo leer una de las partes. Abre el movimiento otra vez y guárdalo." },
+  "parts.badAmount": { en: "Every part needs an amount above 0.", es: "Cada parte necesita un monto mayor que 0." },
+  "parts.pickCategory": { en: "Pick a category for every part.", es: "Elige una categoría para cada parte." },
   "loan.splitTooLarge": { en: "The split ({split}) is larger than the expense ({amount}).", es: "La repartición ({split}) es mayor que el gasto ({amount})." },
   "loan.amountBelowSettled": { en: "This loan already has {settled} repaid or forgiven — the amount can't be lower than that. Move or lower a repayment, or undo a forgiveness, first.", es: "Este préstamo ya tiene {settled} repagado o perdonado: el monto no puede ser menor. Mueve o baja un repago, o deshaz un perdón, primero." },
 

@@ -320,6 +320,7 @@ function stmtMerchantKey_(description) {
 }
 
 function stmtEntrySummary_(e, catsById, pmsById) {
+  if (e && e.purchase_id) return purchaseStmtSummary_(e, catsById, pmsById);   // a split purchase: the whole amount, every category
   return {
     id: e.id, date: e.date, type: e.type, description: e.description,
     amount: Number(e.amount), currency: e.currency, status: e.status,

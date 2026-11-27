@@ -730,6 +730,7 @@ function routeActionSwitch_(action, payload) {
     case 'getEntryBill': return getEntryBill(payload);
     case 'saveEntryBill': return saveEntryBill(payload);
     case 'getEntryTags': return getEntryTags(payload);
+    case 'getPurchaseParts': return getPurchaseParts(payload);   // split by category: every part of one purchase (PurchaseParts.gs)
     case 'saveEntryTags': return saveEntryTags(payload);
     case 'listPaymentMethodBalances': return listPaymentMethodBalances();
     case 'getPaymentMethodMovements': return getPaymentMethodMovements(payload);
@@ -1482,6 +1483,11 @@ function saveEntryAll(payload) {
   var id, out;
   // "Repeat…" in the entry form (owner, 2026-11-05): checked BEFORE anything is written, so a bad choice saves nothing.
   if (payload.repeat) validateEntryRepeat_(payload.repeat);
+  // Split by category (PurchaseParts.gs): the other parts are checked first too, so a bad part saves nothing.
+  if (payload.parts !== undefined) {
+    cleanPurchaseParts_(payload.parts);
+    if (payload.parts.length && (payload.repeat || (kind === 'create' && (payload.fields || {}).type !== 'expense'))) throw new Error(tr_('parts.notThisOne'));
+  }
   if (kind === 'create') {
     out = createEntry(payload.fields || {});
     id = out.id;
@@ -1514,6 +1520,7 @@ function saveEntryAll(payload) {
   if (payload.splits) saveEntrySplits(id, payload.splits);
   if (kind !== 'create' && payload.tag_ids) saveEntryTags({ entryId: id, tagIds: payload.tag_ids });
   if (payload.bill) saveEntryBill({ entryId: id, bill: payload.bill });
+  if (payload.parts !== undefined) saveEntryParts_(id, payload.parts, kind === 'create' ? ((payload.fields || {}).tag_ids || []) : payload.tag_ids);
   if (payload.repeat) out = Object.assign({}, out, { repeat: repeatEntryAsProgrammed_(id, payload.repeat) });
   if (payload.trip_group_size) {   // never fails the save: it only sets where the next group split starts
     try { setTripGroupSize_(payload.trip_group_size.trip_id, payload.trip_group_size.size); } catch (e) { /* ignored */ }
@@ -1747,6 +1754,7 @@ function listEntries(payload) {
   var projByIdList = Object.keys(projSplitsList).length ? projectsById_() : {};
   // What came back on each purchase (Refunds.gs): the edit window's "Refunded … of …" line and the Refund window's limits.
   var refundParts = entries.some(function (e) { return e.type === 'expense'; }) ? refundPartsByPurchase_() : {};
+  addPurchaseTotals_(entries);   // a split purchase's parts say the whole amount (PurchaseParts.gs)
   entries.forEach(function (entry) {
     if (refundParts[entry.id]) { entry.refund_parts = refundParts[entry.id]; entry.refunded = sumParts_(refundParts[entry.id]); }
     entry.amount_pen = computeAmountPen(entry.amount, entry.currency, entry.date);
@@ -1898,7 +1906,7 @@ function buildSearchIndexRows_(entries) {
   };
   var business = businessOn_();
   var projSplits = business ? projectSplitsByEntry_() : {}, projByIdRows = business && Object.keys(projSplits).length ? projectsById_() : {};
-  return entries.map(function (e) {
+  return addPurchaseTotals_(entries.map(function (e) {
     var ownShare = e.type === 'expense' ? Number(e.amount) - (splitSumByEntry[e.id] || 0) : Number(e.amount);
     var row = {
       id: e.id, type: e.type, date: e.date, amount: e.amount, currency: e.currency,
@@ -1915,6 +1923,7 @@ function buildSearchIndexRows_(entries) {
       exchange_pair: e.exchange_pair || '',
       _s: entrySearchText_(e, lk)
     };
+    if (e.purchase_id) row.purchase_id = String(e.purchase_id);   // a split purchase's part (PurchaseParts.gs)
     var usdShare = usdLineAmount_(ratesByCurrency, ownShare, e.currency, e.date);
     if (usdShare != null) row.own_share_usd = usdShare;   // third currency: the share in dollars (RatesUsd.gs)
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
@@ -1927,7 +1936,7 @@ function buildSearchIndexRows_(entries) {
     }
     if (business && projSplits[e.id]) { var pp = projectPartsOfEntry_(e, projSplits, projByIdRows); if (pp.length) row.project_parts = pp; }   // piece 6
     return row;
-  });
+  }));
 }
 
 // "Possible duplicate" warning (owner's request, 2026-10-01): the same day,
@@ -2011,7 +2020,8 @@ function listPendingEntries() {
   // Speed (2026-11-21): each waiting entry scanned ALL entries twice (twins, card charges): ~200 waiting × 7,000. The entries are
   // grouped once (same order inside each group), so each scan only looks at the entries it could ever pick; same answers.
   var twinGroups = {}, chargePending = [];
-  if (entries.length) all.forEach(function (o) {
+  // A split purchase is ONE payment, so a bank e-mail of its whole amount is warned about (PurchaseParts.gs).
+  if (entries.length) stmtCollapsePurchases_(all).forEach(function (o) {
     var k = twinGroupKey_(o);
     (twinGroups[k] || (twinGroups[k] = [])).push(o);
     if (isChargePending_(o)) chargePending.push(o);
