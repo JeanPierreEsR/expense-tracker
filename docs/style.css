@@ -938,6 +938,8 @@ input[type="date"] {
   padding: 4px 0;
 }
 
+#recurring-type-tabs { grid-template-columns: repeat(2, 1fr); }   /* Programmed items: Expense and Income only */
+
 #investment-direction-field {
   margin-top: 12px;
 }

@@ -4503,7 +4503,19 @@
         <input type="text" id="recurring-description" data-i18n-placeholder="recModal.descPlaceholder" placeholder="e.g. Rent, Netflix, Gym, Salary">
 
         <label data-i18n="field.category">Category</label>
-        <div class="tags-list" id="recurring-category-chips"></div>
+        <!-- Picked like the "+" form's category (owner, 2026-11-27): Expense / Income tabs, the icon grid, then the chosen one with Change. -->
+        <div id="recurring-category-box">
+          <div class="type-tabs" id="recurring-type-tabs">
+            <button type="button" class="type-tab active" data-type="expense" data-i18n="type.expense">Expense</button>
+            <button type="button" class="type-tab" data-type="income" data-i18n="type.income">Income</button>
+          </div>
+          <div id="recurring-category-chips" class="category-grid"></div>
+          <div id="recurring-category-banner" class="category-banner" hidden>
+            <span id="recurring-category-icon" class="category-banner-icon"></span>
+            <span id="recurring-category-name"></span>
+            <button type="button" class="add-inline" id="recurring-change-category-btn" data-i18n="common.change">Change</button>
+          </div>
+        </div>
 
         <label for="recurring-amount" id="recurring-amount-label" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="recurring-amount" placeholder="0.00">
