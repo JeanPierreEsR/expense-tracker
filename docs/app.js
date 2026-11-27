@@ -33007,6 +33007,11 @@ function programmedGuideSteps_(ctx) {
   const named = !!document.getElementById("recurring-description").value.trim();   // came filled in (Home's suggestion): its name is not asked
   return [
     { target: "#recurring-description", text: () => tr("rt.prog.desc"), blurTap: true, visit: "#recurring-description", button: realNext_, before: async () => !named },
+    // Filled in from Home's suggestion: first what was filled in, so the person knows; with no category, the next step asks for one (owner, 2026-11-27).
+    { target: () => [document.getElementById("recurring-description"), document.querySelector("#recurring-category-chips .tag-chip.selected")].filter(Boolean),
+      text: () => { const c = meta.categories.find((x) => x.id === selectedRecurringCategoryId), n = document.getElementById("recurring-description").value.trim();
+        return c ? tr("rt.prog.filled", { name: n, category: c.name }) : tr("rt.prog.filledName", { name: n }); },
+      button: realNext_, before: async () => named },
     { key: "category", target: "#recurring-category-chips", text: () => tr("rt.prog.category"), until: () => !!selectedRecurringCategoryId, ok: () => ctx.saving() || !!selectedRecurringCategoryId, holdsUntil: "save" },
     realAmountStep_(ctx, "recurring-amount", () => tr("rt.prog.amount"), "spot.r.s3fix"),
     realCurrencyStep_("recurring-currency-chips"),
