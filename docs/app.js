@@ -5272,7 +5272,7 @@ function paidByLabel(entryOrPaidBy) {
 // entry's labels (Tags) as little pills. Labels the app doesn't know (a tag
 // deleted since) are skipped.
 function entryMetaHtml_(entry, headline) {
-  const tripPill = tripPillHtml_(entry) + businessPillHtml_(entry) + sharedPillHtml_(entry);
+  const tripPill = tripPillHtml_(entry) + businessPillHtml_(entry) + unitPillHtml_(entry) + sharedPillHtml_(entry);
   const pills = tripPill + (Array.isArray(entry.tagIds) ? entry.tagIds : [])
     .map((id) => meta.tags.find((t) => t.id === id))
     .filter(Boolean)
@@ -7781,6 +7781,7 @@ async function startEditEntry(entry) {
   setDetractionState_(entry);
   setContractPayState_(entry);
   setVoucherState_(entry);   // piece 10: how it was paid and its receipt
+  syncUnitField_(entry.unit_id || "");   // its unit (Units.gs)
 
   document.getElementById("edit-mode-banner").hidden = false;
   document.getElementById("submit-btn").textContent = tr("entry.update");
@@ -22405,7 +22406,8 @@ function unitsRefresh_() {
   document.getElementById("units-seq-box").hidden = mode !== "seq";
   document.getElementById("units-list-box").hidden = mode !== "list";
   const names = unitsNames_();
-  const taken = new Set((meta.tags || []).map((t) => String(t.name).trim().toLowerCase()));
+  // Names the project already has are left out (another project's "Depa 101" is no clash: Units.gs).
+  const taken = new Set(unitsOfProject_(unitsForProject_).map((u) => String(u.name).trim().toLowerCase()));
   const fresh = names.filter((x, i) => names.indexOf(x) === i && !taken.has(x.toLowerCase()));
   // The whole list, before anything is created (owner's plan: check it first).
   document.getElementById("units-preview").textContent = !names.length ? "" : names.length > 300 ? tr("units.tooMany")
@@ -22443,14 +22445,11 @@ document.getElementById("units-save").addEventListener("click", () => {
   const err = document.getElementById("units-error");
   if (names.length > 300) { err.textContent = tr("units.tooMany"); return; }
   if (!fresh.length) { err.textContent = tr(names.length ? "units.nothingNew" : "units.nothing"); return; }
+  if (!unitsForProject_) return;
   document.getElementById("units-modal-backdrop").hidden = true;
   const projectId = unitsForProject_;
   unitsForProject_ = "";
-  saveBehindScreen_(async () => {
-    const res = await callApi("addTagsBulk", { names: fresh });
-    const ids = ((res && res.tags) || []).map((t) => t.id);
-    if (projectId && ids.length) await callApi("addProjectUnits", { project_id: projectId, tag_ids: ids });
-  }, async () => { await refreshTagsAfterChange_(); if (projectId) await refreshUnits_(); });
+  saveBehindScreen_(() => callApi("addProjectUnits", { project_id: projectId, names: fresh }), async () => { await loadMeta(); await refreshUnits_(); });
 });
 
 function catCountText_(id) {
@@ -24034,7 +24033,7 @@ function applyBusinessVisibility_(opts) {
     el.textContent = tr(bankWordKey_(key));
   });
   applyCompanyOverview_();   // a company copy's Overview: its own cards and order (Business 2, piece 4)
-  document.getElementById("units-add-btn").hidden = !companyCopyOn_();   // "Add units" (Business 2, piece 5)
+  document.getElementById("units-add-btn").hidden = true;   // units are made in their project since 2026-11-27 (Units.gs), not among the tags
   const peopleHint = document.getElementById("people-hint");
   peopleHint.setAttribute("data-i18n", companyCopyOn_() ? "people.hintCo" : "people.hint");
   peopleHint.textContent = tr(peopleHint.getAttribute("data-i18n"));
@@ -24578,6 +24577,8 @@ function renderProjectUnits_(projectId, data) {
 const refreshUnits_ = () => refreshBusinessDetail_().catch(() => {});
 document.getElementById("business-units-add").addEventListener("click", () => {
   if (!unitsData_) return;
+  // Units are made right in their project (Units.gs): the numbering sheet, no list of tags to pick from.
+  if (unitsOwnOn_()) { openUnits_(null, unitsData_.project_id || ""); return; }
   const box = document.getElementById("units-add-list");
   box.innerHTML = unitsData_.unassigned_tags.map((t) => `<label class="checkbox-row"><input type="checkbox" value="${escapeHtml(t.id)}"> <span>${escapeHtml(t.name)}</span></label>`).join("");
   document.getElementById("units-add-none").hidden = unitsData_.unassigned_tags.length > 0;
@@ -24621,6 +24622,8 @@ function openUnit_(id) {
   document.getElementById("unit-status").value = u.status || "";
   document.getElementById("unit-status-list").innerHTML = UNIT_STATUS_KEYS_.map((k) => `<option value="${escapeHtml(tr(k))}">`).join("");
   document.getElementById("unit-note").value = u.note || "";
+  document.getElementById("unit-name").value = u.name || "";
+  document.getElementById("unit-name").closest(".budget-modal-body").querySelector('label[for="unit-name"]').hidden = document.getElementById("unit-name").hidden = !unitsOwnOn_();
   document.getElementById("unit-error").textContent = "";
   document.getElementById("unit-stage-kind").innerHTML = UNIT_STAGE_KEYS_.map((k) => `<option value="${k}">${escapeHtml(tr("sales.stage." + k))}</option>`).join("");
   document.getElementById("unit-stage-amount").value = "";
@@ -24706,10 +24709,17 @@ document.getElementById("unit-save").addEventListener("click", () => {
   if (pick === "__new__" && !newName) { document.getElementById("unit-error").textContent = tr("sales.buyerName"); return; }
   const body = { id, price, currency: document.getElementById("unit-currency").value, status: document.getElementById("unit-status").value.trim(),
     note: document.getElementById("unit-note").value.trim() };
+  if (unitsOwnOn_()) {   // its name, unique inside its project (Units.gs)
+    const name = document.getElementById("unit-name").value.replace(/\s+/g, " ").trim();
+    if (!name) { document.getElementById("unit-error").textContent = tr("accounts.errName"); return; }
+    const twin = unitsData_.units.find((x) => x.id !== id && x.name.toLowerCase() === name.toLowerCase());
+    if (twin) { document.getElementById("unit-error").textContent = tr("sales.unitNameTaken", { name }); return; }
+    body.name = name;
+  }
   if (pick === "__new__") body.buyer_name = newName; else body.buyer_id = pick;
   document.getElementById("unit-modal-backdrop").hidden = true;
   unitOpenId_ = null;
-  saveBehindScreen_(() => callApi("saveUnit", body), () => { refreshUnits_(); if (body.buyer_name) loadMeta().catch(() => {}); });
+  saveBehindScreen_(() => callApi("saveUnit", body), () => { refreshUnits_(); if (body.buyer_name || body.name) loadMeta().catch(() => {}); });
 });
 document.getElementById("unit-stage-add").addEventListener("click", () => {
   const id = unitOpenId_;
@@ -24727,7 +24737,7 @@ document.getElementById("unit-remove").addEventListener("click", async () => {
   if (!(await askConfirmApp_(tr("sales.askRemove", { unit: u.name }), tr("sales.remove")))) return;
   document.getElementById("unit-modal-backdrop").hidden = true;
   unitOpenId_ = null;
-  saveBehindScreen_(() => callApi("removeProjectUnit", { id: u.id }), refreshUnits_);
+  saveBehindScreen_(() => callApi("removeProjectUnit", { id: u.id }), () => { refreshUnits_(); loadMeta().catch(() => {}); });
 });
 
 // ---- A statement to share (Business 2, piece 12; company copies) ----
@@ -26602,6 +26612,7 @@ function populateBusinessOptions_() {
   syncDetractionField_();   // a company's income: "With detracción" (Detractions.gs)
   syncContractPayField_();   // a company's expense on a project with contracts: "Contract payment" (Contracts.gs)
   syncVoucherField_();   // piece 10: how it was paid and its receipt
+  syncUnitField_();   // the chosen project's unit (Units.gs)
   syncReceiptField_();
 }
 
@@ -27314,6 +27325,7 @@ function setBusinessPick_(value) {
   setDetractionState_(null);                          // ... and the detracción (a new income: its default)
   setContractPayState_(null);                         // ... and a contract payment
   setVoucherState_(null);                             // ... and how it was paid / its receipt (piece 10)
+  syncUnitField_("");                                 // ... and no unit
   syncProjectSplitButton_();                          // "Split between projects" follows the pick (Business 2, piece 6)
 }
 
@@ -27323,10 +27335,58 @@ function businessLinkFields_() {
   const value = document.getElementById("entry-business").value;
   if (value.startsWith("p:")) {
     const project = (meta.projects || []).find((p) => p.id === value.slice(2));
-    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_(), ...detractionFieldToSend_(), ...contractPayFieldToSend_() };
+    return { project_id: value.slice(2), company_id: project ? project.company_id : "", expected_payment_id: selectedType === "income" ? expectedPick_ : "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_(), ...detractionFieldToSend_(), ...contractPayFieldToSend_(), ...unitFieldToSend_() };
   }
-  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_(), ...detractionFieldToSend_(), ...contractPayFieldToSend_() };
-  return { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "", ...voucherFieldsToSend_(), ...detractionFieldToSend_(), ...contractPayFieldToSend_() };
+  if (value.startsWith("c:")) return { project_id: "", company_id: value.slice(2), expected_payment_id: "", igv_amount: igvValueToSend_(), ...voucherFieldsToSend_(), ...detractionFieldToSend_(), ...contractPayFieldToSend_(), ...unitFieldToSend_() };
+  return { project_id: "", company_id: "", expected_payment_id: "", igv_amount: "", ...voucherFieldsToSend_(), ...detractionFieldToSend_(), ...contractPayFieldToSend_(), ...unitFieldToSend_() };
+}
+
+// ---- The unit of the chosen project (owner, 2026-11-27; backend Units.gs) ----
+// A unit belongs to one project, so two buildings can each have a "Depa 101". The field shows only when the chosen project has units:
+// the five used most recently, anyone chosen, then "More…" (the friends-style screen), like every list that grows.
+const unitsOwnOn_ = () => !!(meta && meta.capabilities && meta.capabilities.unitsOwn) && companyCopyOn_();
+let unitLastUsedCache_ = { src: null, n: -1, map: {} };
+function unitLastUsed_() {
+  const rows = searchIndex || [];
+  const c = unitLastUsedCache_;
+  if (c.src === searchIndex && c.n === rows.length) return c.map;
+  const map = {};
+  rows.forEach((e) => {
+    const when = String(e.date || "") + "|" + String(e.created_at || "");
+    if (e.unit_id && (!map[e.unit_id] || when > map[e.unit_id])) map[e.unit_id] = when;
+  });
+  unitLastUsedCache_ = { src: searchIndex, n: rows.length, map };
+  return map;
+}
+const unitsOfProject_ = (projectId) => ((meta && meta.units) || []).filter((u) => u.project_id === projectId)
+  .sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true }));
+// keep: the unit to show chosen (an entry opened to edit); otherwise what is chosen stays if it is still of the chosen project.
+function syncUnitField_(keep) {
+  const field = document.getElementById("unit-field");
+  if (!field || !meta) return;
+  const sel = document.getElementById("entry-unit");
+  const pid = businessOn() && (selectedType === "expense" || selectedType === "income") ? businessPickProjectId_() : "";
+  const units = unitsOwnOn_() && pid ? unitsOfProject_(pid) : [];
+  const want = keep !== undefined ? keep : sel.value;
+  field.hidden = !units.length;
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("unit.none");
+  sel.appendChild(none);
+  units.forEach((u) => { const o = document.createElement("option"); o.value = u.id; o.textContent = u.name; sel.appendChild(o); });
+  sel.value = units.some((u) => u.id === want) ? want : "";
+  if (units.length) personShortList_(sel, { lastUsed: (id) => unitLastUsed_()[id] || "", title: () => tr("unit.choose"), noneKey: "friendPick.noneThing" });
+}
+function unitFieldToSend_() {
+  if (!unitsOwnOn_()) return {};
+  return { unit_id: document.getElementById("unit-field").hidden ? "" : document.getElementById("entry-unit").value };
+}
+document.getElementById("entry-business").addEventListener("change", () => syncUnitField_());
+// An entry's unit as a pill on its row, like its tags.
+function unitPillHtml_(entry) {
+  const u = entry && entry.unit_id && ((meta && meta.units) || []).find((x) => x.id === entry.unit_id);
+  return u ? `<span class="entry-tag">${escapeHtml(u.name)}</span>` : "";
 }
 
 // The label on an entry row: "🏢 Studio Alfa › Casa Lima", or just the company. Skipped while the pack is off.

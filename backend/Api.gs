@@ -1038,6 +1038,7 @@ function getMeta() {
   ensureCashAccount_();   // every copy has one built-in Cash account (owner, 2026-11-02)
   ensureRailDefaults_();
   ensureAnnualTag_();
+  if (unitsModelOn_()) ensureUnitsModel_();   // a company copy's units out of the tags, once (Units.gs), before the tags are read
   ensureAllTripGroupFriends_();
   var payorMergeAsk = payorMergeAskForApp_();   // the owner's copy: names to confirm before payors and friends become one list
   return {
@@ -1049,6 +1050,7 @@ function getMeta() {
     // Business pack (Business.gs): empty, and no sheet is read, while the person has not turned it on.
     companies: getCompanyRows_(),
     projects: getProjectRows_(),
+    units: unitsForMeta_(),   // a company copy's units, each in its project (Units.gs); [] elsewhere
     expectedPayments: getExpectedRows_(),   // empty (and nothing read) while the pack is off
     closedMonths: closedMonths_(),
     contracts: contractsForApp_(),   // company copies' construction contracts with their figures (Contracts.gs); [] elsewhere   // company copies: months closed (MonthClose.gs); [] elsewhere
@@ -1274,6 +1276,7 @@ function createEntry(payload) {
     entry.company_id = ''; entry.project_id = '';   // "Personal", chosen: never given a company copy's company (CompanyCopy.gs)
   }
   Object.assign(entry, receiptFieldsFrom_(payload));   // a company copy's payment method and receipt (AccountantPackage.gs, piece 10)
+  Object.assign(entry, unitFieldFrom_(payload, entry.project_id));   // the unit of the entry's project (Units.gs); {} elsewhere
   // Saved with no category (the person chose not to pick one): fill it from what they decided for the same merchant
   // or description before, else leave it blank for Tidy my history. See CategoryFollow.gs.
   var guessedCategory = '';
@@ -1915,6 +1918,7 @@ function buildSearchIndexRows_(entries) {
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
     if (e.income_waiting) row.income_waiting = e.income_waiting;
     if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; row.expected_payment_id = e.expected_payment_id || ''; row.igv_amount = e.igv_amount || ''; }
+    if (business && e.unit_id) row.unit_id = String(e.unit_id);   // a company copy's unit (Units.gs): its row pill, the form's recent units
     if (business && projSplits[e.id]) { var pp = projectPartsOfEntry_(e, projSplits, projByIdRows); if (pp.length) row.project_parts = pp; }   // piece 6
     return row;
   });
@@ -2041,6 +2045,7 @@ function listPendingEntries() {
 function updateEntryFields(entryId, fields) {
   fields = businessFieldsForUpdate_(entryId, fields);   // Business pack link cleaned (Business.gs); untouched when it is not involved
   fields = receiptFieldsForUpdate_(fields);   // a company copy's payment method and receipt (AccountantPackage.gs); dropped elsewhere
+  fields = unitFieldsForUpdate_(entryId, fields);   // the unit checked against the entry's project (Units.gs)
   // A payment linked for another month (an early salary for August) whose date is moved 2 or more months away from that month: the month
   // is dropped quietly and it counts for its own month again (owner, 2026-11-18).
   if (fields && fields.date) {

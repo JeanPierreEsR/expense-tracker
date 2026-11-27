@@ -67,6 +67,7 @@ var BACKEND_STRINGS_ = {
   "coBot.noConcept": { en: "No concept: pick its category in Needs review.", es: "Sin concepto: elige su categor\u00eda en Por revisar." },
   "coBot.waits": { en: "It waits in Needs review. To change something, reply to this message.", es: "Queda en Por revisar. Para cambiar algo, responde a este mensaje." },
   "coBot.whichAmount": { en: "Which is the amount: {list}?", es: "\u00bfCu\u00e1l es el monto: {list}?" },
+  "coBot.whichProject": { en: "Which project is {unit}? Send it again with the project's name: {list}.", es: "¿De qué proyecto es {unit}? Envíalo de nuevo con el nombre del proyecto: {list}." },
   "coBot.or": { en: " or ", es: " o " },
   "coBot.help": { en: "\u2022 For the company, in any order: \"income 30000 reservation unit 3 P\u00e9rez\" (the type, the amount, the concept, the unit and the client). \"30 mil\", \"30k\" and \"$5000\" (dollars) work too. A new client is added; a unit must already exist (More \u2192 Categories & tags \u2192 Add units).", es: "\u2022 Para la empresa, en cualquier orden: \"ingreso 30000 separaci\u00f3n depa 3 P\u00e9rez\" (el tipo, el monto, el concepto, la unidad y el cliente). Tambi\u00e9n sirven \"30 mil\", \"30k\" y \"$5000\" (d\u00f3lares). Un cliente nuevo se agrega; la unidad tiene que existir (M\u00e1s \u2192 Categor\u00edas y etiquetas \u2192 Agregar unidades)." },
   "units.tooMany": { en: "At most 300 units at once.", es: "Como m\u00e1ximo 300 unidades a la vez." },
@@ -393,6 +394,10 @@ var BACKEND_STRINGS_ = {
   "share.pickOne": { en: "Choose at least one section.", es: "Elige al menos una sección." },
   // Business 2 piece 11: sales by stage (Sales.gs)
   "sales.unitGone": { en: "That unit no longer exists.", es: "Esa unidad ya no existe." },
+  "units.gone": { en: "That unit no longer exists.", es: "Esa unidad ya no existe." },
+  "units.otherProject": { en: "That unit belongs to another project. Pick a unit of this entry's project.", es: "Esa unidad es de otro proyecto. Elige una unidad del proyecto de este movimiento." },
+  "units.inUse": { en: { one: "This unit has 1 entry or collection: it cannot be removed.", other: "This unit has {n} entries or collections: it cannot be removed." }, es: { one: "Esta unidad tiene 1 movimiento o cobro: no se puede quitar.", other: "Esta unidad tiene {n} movimientos o cobros: no se puede quitar." } },
+  "units.nameTaken": { en: "This project already has a unit called {name}.", es: "Este proyecto ya tiene una unidad llamada {name}." },
   "sales.pickStage": { en: "Choose the stage.", es: "Elige la etapa." },
   "sales.notAnIncome": { en: "Only an income received can be returned.", es: "Solo se puede devolver un ingreso recibido." },
   "sales.tooMuch": { en: "At most {max} can be returned from this payment.", es: "De este pago se puede devolver como máximo {max}." },

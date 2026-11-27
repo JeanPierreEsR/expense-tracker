@@ -160,6 +160,7 @@ function saveTypedEntry_(payload, source) {
   // A company copy reads a line in parts, in any order: unit, amount, concept, client (CompanyBot.gs, Business 2 piece 5).
   var co = !read && isCompanyCopy_() ? companyReadLine_(text, companyBotContext_()) : null;
   if (co && co.ask) return { saved: false, reply: tr_('coBot.whichAmount', { list: co.ask.join(tr_('coBot.or')) }) };
+  if (co && co.askUnit) return { saved: false, reply: tr_('coBot.whichProject', { unit: co.askUnit.unit, list: co.askUnit.projects.join(tr_('coBot.or')) }) };
   var fields = read ? read.fields : (co || typedReadLine_(text, home));
   if (!fields) return { saved: false, reply: tr_('whatsapp.unreadable') };
 
@@ -215,8 +216,9 @@ function saveTypedEntry_(payload, source) {
       if (co.clientNew) addFriend({ name: clientName, role: 'client' });
       entry.paid_by = findOrCreatePayorByName_(clientName).id;
     }
+    // A unit names its project too (Units.gs): the entry belongs to that project and its company.
+    if (co && co.unit) { ensureUnitsModel_(); entry.unit_id = co.unit.id; entry.project_id = co.unit.project_id; entry.company_id = co.unit.company_id; }
     appendRowObject('Entries', entry);
-    if (co && co.unit) appendRowObject('Entry Tags', { entry_id: entry.id, tag_id: co.unit.id });   // the unit is a tag
     autoTagTravelEntry_(entry);
 
     var cat = entry.category_id ? guessCtx.categoriesById[entry.category_id] : null;

@@ -1,4 +1,4 @@
-// Business 2, piece 5: units as tags ("Add units") and the bots' short format on a company copy (CompanyBot.gs, TypedEntry.gs).
+// Business 2, piece 5: units ("Add units"; a project's own since 2026-11-27, Units.gs) and the bots' short format on a company copy (CompanyBot.gs, TypedEntry.gs).
 // Made-up data only, on the fake Google layer.
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -17,29 +17,32 @@ function companyCopy(lang = "es") {
   rt.api("saveCompanySetup", { sector: "construction", name: "Constructora Andina", projects: ["Obra Norte"] });
   const floors = [];
   for (let f = 1; f <= 8; f++) for (let u = 1; u <= 5; u++) floors.push("Depa " + (f * 100 + u));
-  rt.api("addTagsBulk", { names: floors.concat(["Depa 3", "Tienda 1", "300"]) });
+  rt.api("addProjectUnits", { project_id: rt.rows("Projects")[0].id, names: floors.concat(["Depa 3", "Tienda 1", "300"]) });
+  rt.api("addTag", { name: "Tienda 1" });   // an ordinary tag of the same name, for the long form's "etiqueta"
   rt.api("addFriend", { name: "Ana Pérez", role: "client" });
   return rt;
 }
-// Saves a typed line the way both bots do (the shared reader) and returns { r, entry, tags }.
+// Saves a typed line the way both bots do (the shared reader) and returns { r, entry, unit, tags }.
 function say(rt, text, n = Math.random()) {
   rt.ctx.__p = JSON.stringify({ id: "msg-" + n, text, timestamp: Math.floor(Date.now() / 1000) });
   const r = JSON.parse(JSON.stringify(rt.run("newTypedEntry_(JSON.parse(__p), 'whatsapp')")));
   const entry = r.entry ? rt.rows("Entries").find((e) => e.id === r.entry.id) : null;
   const tagNames = entry ? rt.rows("Entry Tags").filter((et) => et.entry_id === entry.id).map((et) => rt.rows("Tags").find((t) => t.id === et.tag_id).name) : [];
-  return { r, entry, tags: tagNames };
+  const u = entry && entry.unit_id ? rt.rows("Units").find((x) => x.id === entry.unit_id) : null;
+  return { r, entry, unit: u ? u.name : "", tags: tagNames };
 }
 const catName = (rt, id) => { const c = rt.rows("Categories").find((x) => x.id === id); return c ? c.name : ""; };
 // The payer of an income: a person (people merged into one list) or a row of the older Payors tab.
 const person = (rt, id) => { const f = rt.rows("Friends").find((x) => x.id === id) || (rt.sheet("Payors") ? rt.rows("Payors").find((x) => x.id === id) : null); return f ? f.name : ""; };
 
-test("Add units: many tags at once, existing names skipped", () => {
+test("Add units: many at once in a project, names it already has skipped", () => {
   const rt = companyCopy();
-  assert.ok(rt.rows("Tags").some((t) => t.name === "Depa 805"));
-  const again = rt.api("addTagsBulk", { names: ["Depa 805", "depa 805", "Cochera 12"] });
+  assert.ok(rt.rows("Units").some((t) => t.name === "Depa 805"));
+  assert.ok(!rt.rows("Tags").some((t) => t.name === "Depa 805"), "a unit is not a tag");
+  const again = rt.api("addProjectUnits", { project_id: rt.rows("Projects")[0].id, names: ["Depa 805", "depa 805", "Cochera 12"] });
   assert.equal(again.added, 1);
   assert.equal(again.skipped, 2);
-  assert.throws(() => rt.api("addTagsBulk", { names: Array.from({ length: 301 }, (_, i) => "U" + i) }), /300/);
+  assert.throws(() => rt.api("addProjectUnits", { project_id: rt.rows("Projects")[0].id, names: Array.from({ length: 301 }, (_, i) => "U" + i) }), /300/);
 });
 
 test("the plan's examples read the same, in any order", () => {
@@ -49,7 +52,7 @@ test("the plan's examples read the same, in any order", () => {
   assert.equal(Number(s.entry.amount), 30000);
   assert.equal(s.entry.currency, "PEN");
   assert.equal(catName(rt, s.entry.category_id), "Reservation deposits");
-  assert.deepEqual(s.tags, ["Depa 3"]);
+  assert.equal(s.unit, "Depa 3");
   assert.equal(person(rt, s.entry.paid_by), "Ana Pérez", "an existing client by her last name");
   assert.equal(s.entry.status, "pending", "it waits in Needs review");
   assert.equal(s.entry.company_id, rt.rows("Companies")[0].id, "with the company (piece 2)");
@@ -63,20 +66,21 @@ test("the plan's examples read the same, in any order", () => {
   s = say(rt, "+30 mil 805 separación Pérez");
   assert.equal(s.entry.type, "income");
   assert.equal(Number(s.entry.amount), 30000);
-  assert.deepEqual(s.tags, ["Depa 805"]);
+  assert.equal(s.unit, "Depa 805");
 
   s = say(rt, "cobré $5000 inicial dpto 805 Pérez");
   assert.equal(s.entry.currency, "USD");
   assert.equal(Number(s.entry.amount), 5000);
   assert.equal(catName(rt, s.entry.category_id), "Down payments");
-  assert.deepEqual(s.tags, ["Depa 805"]);
+  assert.equal(s.unit, "Depa 805");
 
   s = say(rt, "ingreso 30k saldo depa 101 Pérez");
   assert.equal(Number(s.entry.amount), 30000);
   assert.equal(catName(rt, s.entry.category_id), "Sale balances");
   s = say(rt, "ingreso 30,000 separación Tienda 1 Pérez");
   assert.equal(Number(s.entry.amount), 30000);
-  assert.deepEqual(s.tags, ["Tienda 1"]);
+  assert.equal(s.unit, "Tienda 1");
+  assert.equal(s.entry.project_id, rt.rows("Projects")[0].id, "the unit's project");
 });
 
 test("a new client in an income is added with the client role, a two-word name included; the reply says so", () => {
@@ -98,7 +102,7 @@ test("when it cannot tell, it asks; a unit that does not exist stays in the desc
   assert.equal(rt.rows("Entries").length, before, "nothing saved");
   const s = say(rt, "ingreso 4000 separación depa 999 Pérez");
   assert.equal(Number(s.entry.amount), 4000);
-  assert.deepEqual(s.tags, []);
+  assert.equal(s.unit, "");
   assert.match(s.entry.description, /depa 999/i);
   assert.match(s.r.reply, /No hay una unidad llamada "depa 999"/);
 });
@@ -112,7 +116,7 @@ test("ordinary lines and the long form still work on a company copy; a normal co
   s = say(rt, "500 cemento depa 3");
   assert.equal(s.entry.type, "expense");
   assert.equal(Number(s.entry.amount), 500);
-  assert.deepEqual(s.tags, ["Depa 3"]);
+  assert.equal(s.unit, "Depa 3");
   s = say(rt, "300 pintura, etiqueta Tienda 1");
   assert.deepEqual(s.tags, ["Tienda 1"], "the long form with its comma keyword");
   // a friend's copy: "805" is never a unit, the usual reading
@@ -121,7 +125,7 @@ test("ordinary lines and the long form still work on a company copy; a normal co
   plain.api("addTag", { name: "Depa 3" });
   const p = say(plain, "ingreso 30000 separación depa 3 Pérez");
   assert.equal(Number(p.entry.amount), 30000, "the usual reading: the number right after \"ingreso\"");
-  assert.deepEqual(p.tags, [], "no unit outside a company copy");
+  assert.equal(p.unit, "", "no unit outside a company copy");
   assert.match(p.entry.description, /depa 3/i);
 });
 
@@ -132,9 +136,7 @@ test("help names the short format on a company copy only; the phone has Add unit
   assert.equal((src.match(/isCompanyCopy_\(\) \? '\\n\\n' \+ tr_\('coBot\.help'\)/g) || []).length, 2, "both bots");
   const app = fs.readFileSync(path.join(__dirname, "../../docs/app.js"), "utf8");
   assert.doesNotThrow(() => new vm.Script(app));
-  assert.match(app, /callApi\("addTagsBulk"/);
-  const html = fs.readFileSync(path.join(__dirname, "../../docs/index.html"), "utf8");
-  assert.match(html, /id="units-add-btn"/);
+  assert.match(app, /callApi\("addProjectUnits", \{ project_id: projectId, names: fresh \}\)/);
 });
 
 test("both bots show the notes under the transaction's own message: a new client, a unit that does not exist, no concept", () => {
@@ -145,5 +147,25 @@ test("both bots show the notes under the transaction's own message: a new client
   assert.match(b.r.editMessage, /No hay una unidad llamada "depa 999"/);
   assert.match(b.r.editMessage, /Sin concepto/);
   assert.equal(say(rt, "ingreso 30000 separación depa 3 Pérez").r.editMessage, "", "nothing to add: the card says it all");
-  assert.deepEqual(say(rt, "ingreso 9000 separación unit 805 Pérez").tags, ["Depa 805"], "English help's \"unit 805\"");
+  assert.equal(say(rt, "ingreso 9000 separación unit 805 Pérez").unit, "Depa 805", "English help's \"unit 805\"");
+});
+
+// Owner, 2026-11-27: two buildings with a "Depa 101" each — a word of the project's name decides, otherwise the bot asks.
+test("the same unit in two projects: the project's name decides, or the bot asks", () => {
+  const rt = companyCopy();
+  const co = rt.rows("Companies")[0].id;
+  const b = rt.api("addProject", { company_id: co, name: "Edificio Los Pinos" });
+  const pinos = b.project || b;
+  rt.api("addProjectUnits", { project_id: pinos.id, names: ["Depa 101"] });
+  const before = rt.rows("Entries").length;
+  const ask = say(rt, "ingreso 5000 separación depa 101 Pérez");
+  assert.equal(ask.r.saved, false);
+  assert.match(ask.r.reply, /¿De qué proyecto es Depa 101\?.*Obra Norte o Edificio Los Pinos/);
+  assert.equal(rt.rows("Entries").length, before, "nothing saved");
+  const s = say(rt, "ingreso 5000 separación depa 101 pinos Pérez");
+  assert.equal(s.unit, "Depa 101");
+  assert.equal(s.entry.project_id, pinos.id);
+  assert.ok(!/pinos/i.test(s.entry.description), "the project's word is not left in the description");
+  const n = say(rt, "500 cemento depa 101 norte");
+  assert.equal(n.entry.project_id, rt.rows("Projects")[0].id);
 });
