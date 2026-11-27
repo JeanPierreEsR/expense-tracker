@@ -142,6 +142,33 @@ function emailAccountByName_(name, bank, paymentMethods) {
   return hits.length === 1 ? hits[0] : null;
 }
 
+// A card named only by its product name, no digits ("Realizaste un consumo con tu Tarjeta Interbank Visa Infinite", 2026-11-27; it replaced a
+// shortcut to the owner's own card). The text after the last `word` of the subject; null when the subject has none.
+function subjectCardName_(subject, word) {
+  var m = String(subject || '').match(new RegExp('.*\\b' + word + '\\s+(.+)$', 'i'));
+  return m ? cleanText_(m[1]) : null;
+}
+
+// Which credit card of the bank that name is: the one whose name is in it ("Visa Infinite" in "Interbank Visa Infinite"), else the bank's
+// ONLY credit card. Never a debit card ("Tarjeta de Debito ..." is read the usual way); null when it cannot be told.
+function emailCardByName_(name, bank, paymentMethods, last4) {
+  if (!name || !bank || /d[e\u00e9]bito/i.test(name)) return null;
+  var cards = paymentMethods.filter(function (pm) { return pm.type === 'credit' && pm.bank_id === bank.id && (!last4 || pmHasNoDigits_(pm)); });   // digits read but matching no account: only a card with no digits filled in
+  var words = ownerNameTokens_(name);
+  var named = cards.filter(function (pm) {
+    var nick = ownerNameTokens_(String(pm.nickname || '').replace(new RegExp(rulePackEscape_(bank.name), 'ig'), ' ')).join('');
+    if (nick.length < 4) return false;
+    for (var i = 0; i < words.length; i++) {
+      var run = '';
+      for (var j = i; j < words.length && run.length < nick.length; j++) run += words[j];
+      if (run === nick) return true;
+    }
+    return false;
+  });
+  if (named.length === 1) return named[0];
+  return cards.length === 1 ? cards[0] : null;
+}
+
 // Real emails often glue "Label" straight onto its value with no space
 // (e.g. "Enviado aJean Pierre..."), and some senders' "plain text" body
 // still carries markdown-style *bold* markers or a stray <br>. The
@@ -539,12 +566,9 @@ var EMAIL_RULES = [
         type: 'expense', amount: amt.amount, currency: amt.currency,
         description: afterLabel_(body, 'Comercio'),
         merchant: afterLabel_(body, 'Comercio'),
-        // Some purchase emails carry no masked digits, only the card's name in
-        // the subject ("...con tu Tarjeta Interbank Visa Infinite"); with
-        // several Interbank payment methods the "only one" fallback no longer
-        // applies, so that name pins the credit card (…3052).
-        last4: extractLast4_(afterLabel_(body, 'Tarjeta') || body)
-          || (/visa infinite/i.test(subject) ? '3052' : null),
+        last4: lastFourAfter_(body, 'Tarjeta'),   // the masked digits on the "Tarjeta: ****1234" line (2026-11-27; the title line also says "Tarjeta" and has none)
+        // No digits (or digits of no account): the card's name in the subject ("...con tu Tarjeta Interbank Visa Infinite") picks the card (emailCardByName_).
+        cardName: subjectCardName_(subject, 'tarjeta'),
         externalId: null
       };
     }
@@ -1313,6 +1337,7 @@ function emailAccountFor_(rule, fields, banks, paymentMethods) {
     if (byCard.length === 1) paymentMethod = byCard[0];
   }
   if (!paymentMethod && fields.accountName) paymentMethod = emailAccountByName_(fields.accountName, bank, paymentMethods);
+  if (!paymentMethod && fields.cardName) paymentMethod = emailCardByName_(fields.cardName, bank, paymentMethods, fields.last4);
   // No account named in the email: the rule may say which account of that
   // currency the money always leaves (BCP, Yape).
   if (!paymentMethod && rule.rail) {

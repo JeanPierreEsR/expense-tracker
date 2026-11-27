@@ -29,5 +29,9 @@
   "interbank-pago-plin": [
     {"subject": "Constancia de Pago Plin TC", "body": "Constancia de Pago Plin\n12 Nov 2026 08:18 AM\nCódigo de operación: 00999901\nTarjeta cargo: Tarjeta infinite 400000******1111\nDetalle de pago: Pago único\nDestinatario: ANA PRUEBA\nDestino: PLIN\nMoneda y monto: S/ 15.15", "expect": {"type": "expense", "needsReview": true, "amount": 15.15, "description": "Plin a ANA PRUEBA", "last4": "1111", "externalId": "00999901"}},
     {"subject": "Constancia de Pago Plin", "body": "Moneda y monto: S/ 30.00\nDestinatario: LUIS PRUEBA\nCuenta cargo\nCuenta Simple\nSoles\n000 0000002222\nCódigo de operación: 00999902", "expect": {"type": "expense", "amount": 30, "description": "Plin a LUIS PRUEBA", "last4": "2222"}}
+  ],
+  "interbank-consumo": [
+    {"subject": "Ana, realizaste un consumo con tu Tarjeta Interbank Visa Prueba", "body": "Ana, realizaste un consumo\nComercio: TIENDA PRUEBA\nMonto: S/ 41.30\nFecha: 01/11/2026", "expect": {"type": "expense", "amount": 41.3, "currency": "PEN", "merchant": "TIENDA PRUEBA", "description": "TIENDA PRUEBA", "last4": null, "cardName": "Interbank Visa Prueba"}},
+    {"subject": "Ana, realizaste un consumo con tu Tarjeta Interbank", "body": "Ana, realizaste un consumo con tu Visa ****1234\nComercio: CAFE PRUEBA\nMonto: $ 12.5\nFecha: 01/11/2026", "expect": {"type": "expense", "amount": 12.5, "currency": "USD", "merchant": "CAFE PRUEBA", "last4": "1234"}}
   ]
 }
