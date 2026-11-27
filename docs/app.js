@@ -27456,32 +27456,48 @@ function renderRecurringLists_() {
 
 const MONTH_NAMES_SHORT = Array.from({ length: 12 }, (_, i) => I18n.monthShort(i, true));   // capitalised in Spanish: every use starts a label
 
+// Picked like the "+" form (owner, 2026-11-27): Expense / Income tabs (no Investment or Transfer), the icon grid of that kind, and once
+// one is picked, a banner with its icon, its name and Change (which brings the tabs and the grid back, on the picked one's kind).
+let recurringCatType_ = "expense";
 function populateRecurringCategoryChips() {
-  const container = document.getElementById("recurring-category-chips");
-  container.innerHTML = "";
-  const all = sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === "expense" || c.type === "income"), selectedRecurringCategoryId));
-  // Expenses first, then income, each under its own small heading (owner's request, 2026-11-03).
-  [["expense", "recurring.expensesTitle"], ["income", "recurring.incomeTitle"]].forEach(([type, titleKey]) => {
-    const group = all.filter((c) => c.type === type);
-    if (!group.length) return;
-    const head = document.createElement("div");
-    head.className = "category-kind-title";
-    head.textContent = tr(titleKey);
-    container.appendChild(head);
-    group.forEach((c) => {
-      const chip = document.createElement("div");
-      chip.className = "tag-chip" + (selectedRecurringCategoryId === c.id ? " selected" : "");
-      chip.textContent = (c.icon ? c.icon + " " : "") + c.name;
-      chip.addEventListener("click", () => {
-        selectedRecurringCategoryId = c.id;
-        populateRecurringCategoryChips();
-        toggleRecurringSplitFieldVisibility();
-        syncRecurringAnnualAuto_();
-      });
-      container.appendChild(chip);
+  const grid = document.getElementById("recurring-category-chips");
+  const cat = selectedRecurringCategoryId ? meta.categories.find((c) => c.id === selectedRecurringCategoryId) : null;
+  if (cat && (cat.type === "expense" || cat.type === "income")) recurringCatType_ = cat.type;
+  document.getElementById("recurring-category-banner").hidden = !cat;
+  document.getElementById("recurring-type-tabs").hidden = !!cat;
+  grid.hidden = !!cat;
+  document.querySelectorAll("#recurring-type-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.type === recurringCatType_));
+  if (cat) {
+    const icon = document.getElementById("recurring-category-icon");
+    icon.textContent = cat.icon || "•";
+    icon.style.background = safeColor_(cat.color);
+    document.getElementById("recurring-category-name").textContent = cat.name;
+  }
+  grid.innerHTML = "";
+  sortedCategories_(pickableCategories_(meta.categories.filter((c) => c.type === recurringCatType_), selectedRecurringCategoryId)).forEach((c) => {
+    const tile = document.createElement("button");
+    tile.type = "button";
+    tile.className = "category-tile";
+    tile.innerHTML = `<span class="category-tile-icon" style="background:${safeColor_(c.color)}">${escapeHtml(c.icon || "•")}</span><span class="category-tile-name">${escapeHtml(c.name)}</span>`;
+    tile.addEventListener("click", () => {
+      selectedRecurringCategoryId = c.id;
+      populateRecurringCategoryChips();
+      toggleRecurringSplitFieldVisibility();
+      syncRecurringAnnualAuto_();
     });
+    grid.appendChild(tile);
   });
 }
+document.querySelectorAll("#recurring-type-tabs .type-tab").forEach((tab) => tab.addEventListener("click", () => {
+  recurringCatType_ = tab.dataset.type;
+  populateRecurringCategoryChips();
+}));
+document.getElementById("recurring-change-category-btn").addEventListener("click", () => {
+  selectedRecurringCategoryId = null;
+  populateRecurringCategoryChips();
+  toggleRecurringSplitFieldVisibility();
+  syncRecurringAnnualAuto_();
+});
 
 // A split only makes sense for an expense-type category (Entry Splits
 // itself is expense-only — see CLAUDE.md), same rule the entry form's own
@@ -27897,6 +27913,7 @@ async function openRecurringModal(re, prefill) {
   document.getElementById("recurring-description").value = src ? src.description : "";
 
   selectedRecurringCategoryId = src ? src.category_id : null;
+  recurringCatType_ = "expense";
   populateRecurringCategoryChips();
 
   // A variable item shows what was typed (its estimate is shown in the hint).
@@ -33008,11 +33025,11 @@ function programmedGuideSteps_(ctx) {
   return [
     { target: "#recurring-description", text: () => tr("rt.prog.desc"), blurTap: true, visit: "#recurring-description", button: realNext_, before: async () => !named },
     // Filled in from Home's suggestion: first what was filled in, so the person knows; with no category, the next step asks for one (owner, 2026-11-27).
-    { target: () => [document.getElementById("recurring-description"), document.querySelector("#recurring-category-chips .tag-chip.selected")].filter(Boolean),
+    { target: () => [document.getElementById("recurring-description"), document.getElementById("recurring-category-banner")].filter((x) => x && !x.hidden),
       text: () => { const c = meta.categories.find((x) => x.id === selectedRecurringCategoryId), n = document.getElementById("recurring-description").value.trim();
         return c ? tr("rt.prog.filled", { name: n, category: c.name }) : tr("rt.prog.filledName", { name: n }); },
       button: realNext_, before: async () => named },
-    { key: "category", target: "#recurring-category-chips", text: () => tr("rt.prog.category"), until: () => !!selectedRecurringCategoryId, ok: () => ctx.saving() || !!selectedRecurringCategoryId, holdsUntil: "save" },
+    { key: "category", target: "#recurring-category-box", text: () => tr("rt.prog.category"), until: () => !!selectedRecurringCategoryId, ok: () => ctx.saving() || !!selectedRecurringCategoryId, holdsUntil: "save" },
     realAmountStep_(ctx, "recurring-amount", () => tr("rt.prog.amount"), "spot.r.s3fix"),
     realCurrencyStep_("recurring-currency-chips"),
     { target: "#recurring-variable-field", text: () => tr((meta.categories.find((c) => c.id === selectedRecurringCategoryId) || {}).type === "income" ? "rt.prog.variableIncome" : "rt.prog.variable"), button: realNext_, before: async () => realShown_("recurring-variable-field") },
@@ -34490,7 +34507,7 @@ function practiceRSteps_() {
   return [
     { key: "intro", text: () => tr("spot.r.intro"), button: () => tr("spot.r.start") },
     { target: "#add-recurring-btn", text: () => tr("spot.r.s1"), tap: "#add-recurring-btn", before: async () => { if (document.getElementById("screen-recurring").hidden) showRecurringScreen(); } },
-    { key: "category", target: "#recurring-category-chips", text: (fix) => (fix || (selectedRecurringCategoryId && !expenseChosen())) ? tr("spot.r.s2fix") : tr("spot.r.s2"),
+    { key: "category", target: "#recurring-category-box", text: (fix) => (fix || (selectedRecurringCategoryId && !expenseChosen())) ? tr("spot.r.s2fix") : tr("spot.r.s2"),
       until: expenseChosen, ok: expenseChosen, holdsUntil: "save", before: async () => { nameIt(); } },
     { key: "amount", target: "#recurring-amount", text: (fix) => tr(fix ? "spot.r.s3fix" : "spot.r.s3", { cur }), blurTap: true, until: amountDone,
       ok: () => amountVal() > 0, holdsUntil: "save" },

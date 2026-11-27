@@ -3766,7 +3766,7 @@
     "rt.prog.desc": { en: "What is it? For example, Rent.", es: "¿Qué es? Por ejemplo, Alquiler." },
     "rt.prog.filled": { en: "We filled in what you recorded: “{name}”, in {category}. You can change them here.", es: "Llenamos lo que registraste: “{name}”, en {category}. Puedes cambiarlos aquí." },
     "rt.prog.filledName": { en: "We filled in the name of what you recorded: “{name}”. You can change it here.", es: "Llenamos el nombre de lo que registraste: “{name}”. Puedes cambiarlo aquí." },
-    "rt.prog.category": { en: "Pick its category. Income categories are there too.", es: "Elige su categoría. También están las de ingresos." },
+    "rt.prog.category": { en: "Pick its category. For income, tap Income first.", es: "Elige su categoría. Si es un ingreso, toca primero Ingreso." },
     "rt.prog.amount": { en: "How much is it each time? If it varies, type an estimate. Then tap outside the box.", es: "¿Cuánto es cada vez? Si varía, escribe un estimado. Luego toca fuera de la casilla." },
     "rt.prog.freq": { en: "How often does it repeat?", es: "¿Cada cuánto se repite?" },
     "rt.prog.date": { en: "Which day is it due?", es: "¿Qué día vence?" },
