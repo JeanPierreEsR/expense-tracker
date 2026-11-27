@@ -82,7 +82,7 @@ function monthRowTexts_(month) {
     if (receipt.join('')) out['Entries:' + e.id] += '|r:' + receipt.join('|');
   });
   var ss = SpreadsheetApp.getActiveSpreadsheet();
-  ['Entry Splits', 'Project Splits', 'Contributions', 'Distributions'].forEach(function (t) {
+  ['Entry Splits', 'Project Splits', 'Contributions', 'Distributions', 'Contract Payments'].forEach(function (t) {
     if (!ss.getSheetByName(t)) return;
     getAllRows(t).forEach(function (r, i) {
       if (!ids[r.entry_id]) return;

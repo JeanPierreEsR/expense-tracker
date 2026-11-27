@@ -82,8 +82,6 @@ test("a waiting income gets its transfer when confirmed", () => {
 test("refused or ignored where it does not apply", () => {
   const rt = companyCopy();
   assert.throws(() => income(rt, { detraction_amount: 10000 }), /detracci/i);
-  const usd = income(rt, { currency: "USD", detraction_amount: 40 });
-  assert.equal(linked(rt, usd.id).length, 0, "soles only");
   const personal = income(rt, { company_id: "", detraction_amount: 400 });
   assert.equal(linked(rt, personal.id).length, 0);
   const { rt: plain } = freshApp({ small: true });
@@ -97,4 +95,29 @@ test("a company's usual detracción %", () => {
   rt.api("updateCompany", { id: company(rt), name: "Constructora Andina", detraction_rate: 12 });
   assert.equal(Number(rt.rows("Companies")[0].detraction_rate), 12);
   assert.throws(() => rt.api("updateCompany", { id: company(rt), name: "Constructora Andina", detraction_rate: 150 }));
+});
+
+test("an invoice in dollars: out of the bank in dollars, into the Banco de la Nación in soles, as one exchange", () => {
+  const rt = companyCopy();
+  const e = income(rt, { currency: "USD", amount: 10000, detraction_amount: 400, detraction_pen: 1520.4 });
+  const legs = linked(rt, e.id);
+  assert.equal(legs.length, 2);
+  const out = legs.find((l) => l.currency === "USD"), inn = legs.find((l) => l.currency === "PEN");
+  assert.equal(Number(out.amount), 400);
+  assert.equal(out.payment_method_id, pm(rt));
+  assert.equal(Number(inn.amount), 1520, "whole soles");
+  assert.equal(inn.to_payment_method_id, bnId(rt));
+  assert.equal(String(out.exchange), "1");
+  assert.equal(out.exchange_pair, inn.exchange_pair);
+  assert.equal(balanceOf(rt, bnId(rt)), 1520);
+  // edited: the same two legs move; back to soles: one plain transfer
+  rt.api("saveEntryAll", { kind: "update", id: e.id, fields: { detraction_amount: 500, detraction_pen: 1900 } });
+  assert.deepEqual(linked(rt, e.id).map((l) => Number(l.amount)).sort((a, b) => a - b), [500, 1900]);
+  rt.api("saveEntryAll", { kind: "update", id: e.id, fields: { currency: "PEN", detraction_amount: 400 } });
+  assert.equal(linked(rt, e.id).length, 1);
+  assert.equal(String(linked(rt, e.id)[0].exchange || ""), "");
+  // with no soles typed and no rate on file: refused, nothing kept half-way
+  const before = rt.rows("Entries").length;
+  assert.throws(() => income(rt, { currency: "EUR", amount: 1000, detraction_amount: 40, date: "2020-01-15" }), /soles/i);
+  assert.equal(rt.rows("Entries").length, before, "nothing saved");
 });

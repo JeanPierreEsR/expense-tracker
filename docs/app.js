@@ -4268,6 +4268,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (!amount || amount <= 0) throw new Error(tr("error.validAmount"));
     const contractError = contractPayError_(amount);   // a construction contract's valuation must add up (Contracts.gs)
     if (contractError) throw new Error(contractError);
+    const detrOut = detractionFieldToSend_();   // a detracción in another currency needs the soles deposited (Detractions.gs)
+    if (detrOut.detraction_amount !== undefined && detrOut.detraction_amount !== "" && detrCur_() !== "PEN" && !detrOut.detraction_pen) throw new Error(tr("detr.needPen"));
     // A purchase can't go below what already came back (the server refuses too; checked here so the window stays open, owner 2026-11-26).
     const backAlready = editingRefundEntry_ && editingRefundEntry_.id === editingEntryId && !editingRefundEntry_.refund_of && selectedType === "expense" ? Number(editingRefundEntry_.refunded || 0) : 0;
     if (backAlready > 0.004 && amount < backAlready - 0.004) throw new Error(tr("refund.belowRefundedPhone", { amount: formatAmount(backAlready, editingRefundEntry_.currency) }));
@@ -13300,6 +13302,7 @@ function savePartnerFromEntryForm_() {
     if (!(w >= 0)) return fail("partner.badWithholding");
     body.withholding = w;
   }
+  transferNoteSaved_();   // ends the tutorial offer for this kind (a guided save counts as taught)
   const who = pick === "__new__" ? newName : ((meta.friends || []).find((f) => f.id === pick) || {}).name || "";
   const label = `${tr(kind === "distribution" ? "transfer.kind.distribution" : "transfer.kind.partnerIn")} · ${who} ${currency} ${moneyFmt(amount)}`;
   resetEntryFormFields_();
@@ -27094,7 +27097,25 @@ let detrStored_ = null;     // an entry being edited: its stored detracción (0 
 let detrNetBefore_ = null;  // an item from the bank, raised to the invoice: what arrived
 function detrRateFor_(company) { const r = Number(company && company.detraction_rate); return r > 0 && r < 100 ? r : 4; }
 function detrRate_() { const r = parseFloat(String(document.getElementById("detraction-rate").value).replace(/,/g, ".")); return r > 0 && r < 100 ? r : 0; }
-function detrAmountOf_(total) { const r = detrRate_(); return r ? Math.round(total * r / 100) : 0; }
+// In soles SUNAT's whole soles; in another currency the client keeps the % to the cent and deposits its value in soles (detraction-pen).
+function detrCur_() { return document.getElementById("currency").value.toUpperCase(); }
+function detrAmountOf_(total) { const r = detrRate_(); if (!r) return 0; return detrCur_() === "PEN" ? Math.round(total * r / 100) : Math.round(total * r) / 100; }
+let detrPenTouched_ = false;
+const detrRates_ = new Map();   // "USD|2026-11" -> the month's rate to soles (or null)
+function detrProposePen_() {
+  if (detrCur_() === "PEN" || detrPenTouched_ || document.getElementById("detraction-detail").hidden) return;
+  const total = parseFloat(String(document.getElementById("amount").value).replace(/,/g, "")) || 0;
+  const key = detrCur_() + "|" + String(document.getElementById("date").value).slice(0, 7);
+  const fill = (rate) => { if (detrPenTouched_ || !(rate > 0)) return; const d = detrAmountOf_(total); document.getElementById("detraction-pen").value = d > 0 ? String(Math.round(d * rate)) : ""; renderDetractionHint_(); };
+  if (homeCur() !== "PEN") return;   // the rate table is to the main currency: soles only where they are the main one
+  if (detrRates_.has(key)) { fill(detrRates_.get(key)); return; }
+  detrRates_.set(key, null);
+  callApi("getExchangeRate", { currency: detrCur_(), month: key.slice(-7) }).then((r) => {
+    const rate = Number(r && (r.rate !== undefined ? r.rate : r)) || 0;
+    detrRates_.set(key, rate || null);
+    fill(rate);
+  }).catch(() => detrRates_.delete(key));
+}
 function detrFromBank_() {
   const w = lastConfirmPendingEntry_;
   return !!confirmingPendingId && !!w && w.id === confirmingPendingId && ["email", "shortcut", "statement", "house"].includes(w.source);
@@ -27104,7 +27125,7 @@ function syncDetractionField_() {
   if (!field || !meta) return;
   const company = businessCompanyOfPick_();
   const toggle = document.getElementById("detraction-toggle");
-  const show = companyCopyOn_() && selectedType === "income" && !!company && document.getElementById("currency").value.toUpperCase() === "PEN" && !incomeWaitingOn_();
+  const show = companyCopyOn_() && selectedType === "income" && !!company && !incomeWaitingOn_();
   field.hidden = !show;
   if (!show) { if (toggle.checked) detrUngross_(); toggle.checked = false; return; }
   const rateBox = document.getElementById("detraction-rate");
@@ -27114,6 +27135,8 @@ function syncDetractionField_() {
     toggle.checked = !(cat && DETR_SALE_KEYS_.includes(String(cat.key || "")));
   }
   document.getElementById("detraction-detail").hidden = !toggle.checked;
+  document.getElementById("detraction-pen-box").hidden = detrCur_() === "PEN";
+  detrProposePen_();
   renderDetractionHint_();
 }
 function renderDetractionHint_() {
@@ -27121,9 +27144,12 @@ function renderDetractionHint_() {
   if (!hint || document.getElementById("detraction-field").hidden || !document.getElementById("detraction-toggle").checked) return;
   const total = parseFloat(String(document.getElementById("amount").value).replace(/,/g, "")) || 0;
   const d = detrAmountOf_(total);
+  const cur = detrCur_();
+  const penBox = parseFloat(String(document.getElementById("detraction-pen").value).replace(/,/g, "")) || 0;
+  const bn = cur === "PEN" ? formatAmount(d, "PEN") : penBox > 0 ? formatAmount(Math.round(penBox), "PEN") : formatAmount(d, cur);
   hint.textContent = detrNetBefore_ !== null
-    ? tr("detr.grossedUp", { total: formatAmount(total, "PEN"), net: formatAmount(detrNetBefore_, "PEN"), bn: formatAmount(d, "PEN") })
-    : tr("detr.hint", { bank: formatAmount(Math.max(0, total - d), "PEN"), bn: formatAmount(d, "PEN") });
+    ? tr("detr.grossedUp", { total: formatAmount(total, cur), net: formatAmount(detrNetBefore_, cur), bn })
+    : tr("detr.hint", { bank: formatAmount(Math.max(0, total - d), cur), bn });
 }
 // From the bank: what arrived is the net; the invoice is net + the part kept (net × r / (100 − r), whole soles).
 function detrGrossUp_() {
@@ -27132,7 +27158,8 @@ function detrGrossUp_() {
   const r = detrRate_();
   if (!(net > 0) || !r) return;
   detrNetBefore_ = net;
-  box.value = (net + Math.round(net * r / (100 - r))).toFixed(2);
+  const kept = detrCur_() === "PEN" ? Math.round(net * r / (100 - r)) : Math.round(net * r / (100 - r) * 100) / 100;
+  box.value = (net + kept).toFixed(2);
   if (typeof igvAutoFill_ === "function" && document.getElementById("igv-toggle").checked) { igvAutoFill_(); renderIgvHint_(); }
 }
 function detrUngross_() {
@@ -27143,6 +27170,8 @@ function detrUngross_() {
 function setDetractionState_(entry) {
   detrTouched_ = false;
   detrNetBefore_ = null;
+  detrPenTouched_ = !!(entry && Number(entry.detraction_pen) > 0);
+  document.getElementById("detraction-pen").value = entry && Number(entry.detraction_pen) > 0 ? String(Math.round(Number(entry.detraction_pen))) : "";
   detrStored_ = entry ? (Number(entry.detraction_amount) > 0 ? Number(entry.detraction_amount) : 0) : null;
   const toggle = document.getElementById("detraction-toggle");
   toggle.checked = !!detrStored_;
@@ -27152,7 +27181,12 @@ function setDetractionState_(entry) {
   syncDetractionField_();
 }
 // A company copy's income always sends it ("" takes it off on an edit); everything else never touches it.
-function detractionFieldToSend_() { return companyCopyOn_() && selectedType === "income" ? { detraction_amount: detractionValueToSend_() } : {}; }
+function detractionFieldToSend_() {
+  if (!companyCopyOn_() || selectedType !== "income") return {};
+  const out = { detraction_amount: detractionValueToSend_() };
+  if (out.detraction_amount !== "" && detrCur_() !== "PEN") out.detraction_pen = Math.round(parseFloat(String(document.getElementById("detraction-pen").value).replace(/,/g, "")) || 0) || "";
+  return out;
+}
 // What the form sends: the part kept in whole soles, or "" (none, or taken off).
 function detractionValueToSend_() {
   if (document.getElementById("detraction-field").hidden || !document.getElementById("detraction-toggle").checked) return "";
@@ -27171,9 +27205,16 @@ document.getElementById("detraction-rate").addEventListener("input", (e) => {
   if (clean !== e.target.value) e.target.value = clean;
   detrTouched_ = true;
   if (detrNetBefore_ !== null) detrGrossUp_();
+  detrProposePen_();
   renderDetractionHint_();
 });
-document.getElementById("amount").addEventListener("input", () => { if (detrNetBefore_ !== null) detrNetBefore_ = null; renderDetractionHint_(); });
+document.getElementById("amount").addEventListener("input", () => { if (detrNetBefore_ !== null) detrNetBefore_ = null; detrProposePen_(); renderDetractionHint_(); });
+document.getElementById("detraction-pen").addEventListener("input", (e) => {
+  const clean = e.target.value.replace(/[^0-9]/g, "");
+  if (clean !== e.target.value) e.target.value = clean;
+  detrPenTouched_ = clean !== "";
+  renderDetractionHint_();
+});
 
 function syncIgvField_() {
   const field = document.getElementById("igv-field");
@@ -32739,7 +32780,7 @@ function startReviewTopUp_(entries, specials) {
 }
 
 // Transfers ("+" → Transfer): one start, then a path per kind (owner, 2026-11-09). Choosing the tab may be only a look, so it asks. Confirming one in Needs review does not count.
-const TRANSFER_FEATURE_ = { between: "transfer", repayment: "repay", loan: "loan", exchange: "exchange" };
+const TRANSFER_FEATURE_ = { between: "transfer", repayment: "repay", loan: "loan", exchange: "exchange", partner_in: "partner-in", distribution: "distribution" };   // the last two: company copies
 const TRANSFER_PRACTICE_ = { repay: "loans", loan: "loans-standalone" };   // the practice that already teaches it, where its name differs
 function transferKindTaught_(kind) {
   const f = TRANSFER_FEATURE_[kind];
@@ -32825,9 +32866,20 @@ function startTransferReal_(kind) {
   steps.push(only(debt, { target: "#repayment-direction-tabs", text: () => tr(is("loan")() ? "rt.loan.direction" : "rt.repay.direction"), tap: "#repayment-direction-tabs", button: next }));
   steps.push(only(debt, { key: "friend", target: () => [el("repayment-friend"), el("repayment-hint")], text: (fix) => tr(fix ? "rt.transfer.friendFix" : is("loan")() ? "rt.loan.friend" : "rt.repay.friend"), visit: "#repayment-friend", button: next, ok: () => submitted || !debt() || friendOk(), holdsUntil: "save" }));
   // Everything except an exchange, which has its own fields. The amount is asked for even when already explained: Save needs it.
-  steps.push(only(is("between", "repayment", "loan"), { key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
-    until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || !is("between", "repayment", "loan")() || amountOk(), holdsUntil: "save" }));
-  if (isNew("date")) steps.push(only(is("between", "repayment", "loan"), { field: "date", target: "#date", text: () => tr(is("loan")() ? "rt.loan.date" : "spot.g.date"), visit: "#date", button: next }));
+  // A partner's money / a profit distribution (company copies, owner's pin 2026-11-26): who, and what it is.
+  const partner = is("partner_in", "distribution");
+  const partnerOk = () => !!el("entry-partner").value;   // "+ New partner…" counts: its name is the next step (and Save says if it is missing)
+  const pKindOk = () => !!document.querySelector('input[name="entry-partner-kind"]:checked');
+  steps.push(only(partner, { key: "partner", target: "#entry-partner", text: (fix) => tr(fix ? "rt.partner.whoFix" : "rt.partner.who"), visit: "#entry-partner", button: next,
+    ok: () => submitted || !partner() || partnerOk(), holdsUntil: "save" }));
+  steps.push(only(() => partner() && el("entry-partner").value === "__new__", { target: "#entry-partner-new", text: () => tr("rt.partner.newName"), blurTap: true,
+    until: () => !!el("entry-partner-new").value.trim() && document.activeElement !== el("entry-partner-new") }));
+  steps.push(only(is("partner_in"), { key: "pkind", target: "#entry-partner-kind-box", text: (fix) => tr(fix ? "rt.partner.kindFix" : "rt.partner.kind"),
+    until: pKindOk, ok: () => submitted || !is("partner_in")() || pKindOk(), holdsUntil: "save" }));
+  steps.push(only(is("distribution"), { target: "#entry-partner-out-box", text: () => tr("rt.distribution.withholding"), visit: "#entry-partner-withholding", button: next }));
+  steps.push(only(is("between", "repayment", "loan", "partner_in", "distribution"), { key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : is("distribution")() ? "rt.distribution.amount" : "spot.g.amount"), blurTap: true,
+    until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || !is("between", "repayment", "loan", "partner_in", "distribution")() || amountOk(), holdsUntil: "save" }));
+  if (isNew("date")) steps.push(only(is("between", "repayment", "loan", "partner_in", "distribution"), { field: "date", target: "#date", text: () => tr(is("loan")() ? "rt.loan.date" : "spot.g.date"), visit: "#date", button: next }));
   // Under the date (owner, 2026-11-12): a date before the first day of use has ticked it already; ticking it by hand moves on.
   steps.push(only(() => is("loan")() && !document.getElementById("entry-opening-row").hidden, { target: "#entry-opening-row",
     text: () => tr(el("entry-opening").dataset.autoTicked && el("entry-opening").checked ? "rt.loan.openingAuto" : "rt.loan.opening"), button: next,
@@ -32836,6 +32888,7 @@ function startTransferReal_(kind) {
   steps.push(only(is("between"), { target: "#payment-method-field", text: () => tr("spot.g.accFrom"), visit: "#payment_method", button: next }));
   steps.push(only(is("between"), { target: "#to-payment-method-field", text: () => tr("rt.transfer.to"), visit: "#to_payment_method", button: next }));
   steps.push(only(() => debt() && !entryOpeningOn_(), { target: "#payment-method-field", text: () => tr(is("loan")() ? "rt.loan.account" : "rt.transfer.account"), visit: "#payment_method", button: next }));
+  steps.push(only(partner, { target: "#payment-method-field", text: () => tr(is("distribution")() ? "rt.distribution.account" : "rt.partner.account"), visit: "#payment_method", button: next }));
   // Which loans it pays (owner's plan, 2026-11-24): only where the list is offered (two or more open loans in that direction and currency).
   steps.push(only(() => is("repayment")() && realShown_("entry-repay-choose"), { target: "#entry-repay-choose", text: () => tr("rt.repay.choose"), button: next }));
   const tickOpen = () => is("repayment")() && !el("entry-repay-choose").hidden && !el("entry-repay-choose-panel").hidden && !(entryRepayAllocations_() || []).length;
@@ -32851,18 +32904,19 @@ function startTransferReal_(kind) {
     text: () => { const e = xError(); return e ? tr("spot.x.s10err", { error: e }) : tr("spot.x.s10"); },
     before: async () => { chosen = kindNow(); submitted = true; el("exchange-form-error").textContent = ""; return true; }, until: () => !newEntrySheetOpen_ }));
   // Save, and what it did
-  steps.push(only(is("between", "repayment", "loan"), { key: "save", target: () => repayTickTarget_("entry-repay-choose", tickOpen, realSaveTarget_("submit-btn", "form-error")),
+  steps.push(only(is("between", "repayment", "loan", "partner_in", "distribution"), { key: "save", target: () => repayTickTarget_("entry-repay-choose", tickOpen, realSaveTarget_("submit-btn", "form-error")),
     text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tickOpen() ? tr("rt.repay.tick", { label: el("submit-btn").textContent.trim() }) : tr("spot.g.save"); },
     before: async () => { chosen = kindNow(); el("form-error").textContent = ""; return true; },
     until: () => !!(guided_ && guided_.savedId) || !newEntrySheetOpen_ }));
   let friend = "";
-  steps.push(...realWhereSteps_(() => (debt() ? realLoanRow_(friend) : is("exchange")() ? document.querySelector("#entry-list .entry-exchange") : realEntryRow_(guided_ && guided_.savedId)),
+  steps.push(...realWhereSteps_(() => (debt() ? realLoanRow_(friend) : is("exchange")() ? document.querySelector("#entry-list .entry-exchange") : partner() ? document.getElementById("co-partners-card") : realEntryRow_(guided_ && guided_.savedId)),
     () => (chosen === "repayment" && lastNothingOwedChoice_ === "entry" ? tr("rt.repay.doneEntry")
       : chosen === "loan" && lastOpeningDebt_ ? tr("rt.loan.doneOpening")
-      : tr({ between: "rt.transfer.done", repayment: "rt.repay.done", loan: "rt.loan.done", exchange: "rt.exchange.done" }[chosen] || "rt.transfer.done")),
-    { unsaved: () => !debt() && !is("exchange")() && !(guided_ && guided_.savedId) && !newEntrySheetOpen_,
+      : tr({ between: "rt.transfer.done", repayment: "rt.repay.done", loan: "rt.loan.done", exchange: "rt.exchange.done", partner_in: "rt.partnerIn.done", distribution: "rt.distribution.done" }[chosen] || "rt.transfer.done")),
+    { unsaved: () => !debt() && !is("exchange")() && !partner() && !(guided_ && guided_.savedId) && !newEntrySheetOpen_,
       // Nothing was owed and it was saved as an expense / income: no Loans row to show, only the words.
-      before: async () => { if (chosen === "repayment" && lastNothingOwedChoice_ === "entry") return false; friend = el("repayment-friend").value; if (debt()) { showScreen("loans"); return true; } return realOnHome_(); }, poke: () => { (debt() ? refreshLoans() : refreshEntryList()).catch(() => {}); } }));
+      before: async () => { if (chosen === "repayment" && lastNothingOwedChoice_ === "entry") return false; friend = el("repayment-friend").value; if (debt()) { showScreen("loans"); return true; } if (partner()) { showScreen("overview"); return true; } return realOnHome_(); },
+      poke: () => { (debt() ? refreshLoans() : partner() ? refreshOverview() : refreshEntryList()).catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
     onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); guided_ = null; },

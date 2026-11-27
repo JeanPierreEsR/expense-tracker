@@ -265,6 +265,9 @@ function updateEntryFromApp_(payload) {
   }
   var afterIncomeEdit = prepareWaitingIncomeEdit_(payload.id, payload.fields);   // an income not received yet and its debt are one
   var afterRefundEdit = refundEditGuard_(payload.id, payload.fields);   // a refund stays within its purchase; a purchase never below its refunds (Refunds.gs)
+  if (payload.fields && payload.fields.detraction_amount !== undefined) {   // Detractions.gs: refused before anything is written
+    checkDetractionBeforeSave_(Object.assign({}, getEntryById_(payload.id) || {}, payload.fields), payload.fields.detraction_amount, payload.fields.detraction_pen);
+  }
   var entry = updateEntryFields(payload.id, payload.fields);
   if (afterIncomeEdit) { afterIncomeEdit(); entry = getEntryById_(payload.id); }
   if (afterRefundEdit) { afterRefundEdit(); entry = getEntryById_(payload.id); }
@@ -275,7 +278,7 @@ function updateEntryFromApp_(payload) {
   }
   syncRepaymentAfterEntryEdit_(payload.id, payload.fields);
   // A company's income and its Banco de la Nación transfer stay one (Detractions.gs): what the form sent, else the stored part follows.
-  applyDetractionFromSave_(payload.id, payload.fields ? payload.fields.detraction_amount : undefined);
+  applyDetractionFromSave_(payload.id, payload.fields ? payload.fields.detraction_amount : undefined, payload.fields ? payload.fields.detraction_pen : undefined);
   if (payload.fields && payload.fields.contract_payment !== undefined) applyContractPaymentFromSave_(payload.id, payload.fields.contract_payment);   // Contracts.gs
   if (payload.fields && payload.fields.detraction_amount !== undefined) entry = getEntryById_(payload.id) || entry;
   if (before !== null && entry && entry.category_id && entry.category_id !== before) {

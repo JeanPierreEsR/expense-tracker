@@ -147,7 +147,12 @@ function buildAccountantPackage_(month) {
     tr_('pkg.h.payMethod'), tr_('pkg.h.receiptType'), tr_('pkg.h.receiptNo'), tr_('pkg.h.support'), tr_('pkg.h.fx'),
     // For the purchase and sales books (owner, 2026-11-24, after the testers): SUNAT's receipt code, and the amount split into its base,
     // IGV and total. Added at the end, so the columns an accountant already uses stay where they were.
-    tr_('pkg.h.receiptCode'), tr_('pkg.h.base'), tr_('pkg.h.total'), tr_('pkg.h.counterparty'), tr_('pkg.h.counterpartyId')]];
+    tr_('pkg.h.receiptCode'), tr_('pkg.h.base'), tr_('pkg.h.total'), tr_('pkg.h.counterparty'), tr_('pkg.h.counterpartyId'),
+    // Detracción and construction contracts (owner, 2026-11-26), again at the end.
+    tr_('pkg.h.detraction'), tr_('pkg.h.contract'), tr_('pkg.h.contractKind'), tr_('pkg.h.valued'), tr_('pkg.h.advanceTaken'), tr_('pkg.h.guaranteeKept')]];
+  var contractsById = {}, payByEntry = {};
+  contractRows_().forEach(function (c) { contractsById[c.id] = c; });
+  contractPaymentRows_().forEach(function (r) { payByEntry[r.entry_id] = r; });
   var peopleById = {};
   getAllRows('Friends').forEach(function (f) { peopleById[f.id] = f; });
   var unsupported = [];
@@ -173,7 +178,7 @@ function buildAccountantPackage_(month) {
       e.type === 'expense' || e.type === 'income' ? round2_(Math.abs(Number(e.amount))) : '',
       // The client an income came from ("Received from"); an expense has no supplier on record yet, so it stays blank.
       e.type === 'income' && peopleById[e.paid_by] ? String(peopleById[e.paid_by].name || '') : '',
-      e.type === 'income' && peopleById[e.paid_by] ? String(peopleById[e.paid_by].tax_id || '') : '']);
+      e.type === 'income' && peopleById[e.paid_by] ? String(peopleById[e.paid_by].tax_id || '') : ''].concat(pkgDetrContractCells_(e, payByEntry, contractsById, peopleById)));
   });
   files.push({ kind: 'movements', name: tr_('pkg.file.movements', { month: month }), rows: mv.length - 1, text: pkgCsv_(mv) });
 
@@ -226,6 +231,31 @@ function buildAccountantPackage_(month) {
   });
   unsupported.forEach(function (e) { pen.push([tr_('pkg.pendingSupport'), d10_(e.date), String(e.description || ''), Math.abs(Number(e.amount)), String(e.currency || home)]); });
   files.push({ kind: 'pending', name: tr_('pkg.file.pending', { month: month }), rows: pen.length - 1, text: pkgCsv_(pen) });
+
+  // 5. Construction contracts (only when there are any): the month's valuations and payments, and where each contract stands at its end
+  var contracts = contractRows_();
+  if (contracts.length) {
+    var byId = {};
+    all.forEach(function (e) { byId[e.id] = e; });
+    var ct = [[tr_('pkg.h.project'), tr_('pkg.h.subcontractor'), tr_('pkg.h.description'), tr_('pkg.h.currency'), tr_('pkg.h.contractAmount'),
+      tr_('pkg.h.valuedMonth'), tr_('pkg.h.paidMonth'), tr_('pkg.h.valuedTotal'), tr_('pkg.h.paidTotal'), tr_('pkg.h.advanceLeft'), tr_('pkg.h.guaranteeLeft'), tr_('pkg.h.toPay')]];
+    contracts.forEach(function (c) {
+      var t = { vm: 0, pm: 0, vt: 0, pt: 0, adv: 0, am: 0, held: 0, ret: 0 };
+      contractPaymentsOf_(c.id, byId).forEach(function (p) {
+        var d = d10_(p.entry.date);
+        if (p.entry.status !== 'confirmed' || d > r.end) return;
+        var amt = Math.abs(Number(p.entry.amount)) || 0, gross = Number(p.row.gross) || 0;
+        t.pt += amt; if (d >= r.start) t.pm += amt;
+        if (p.row.kind === 'advance') t.adv += amt;
+        else if (p.row.kind === 'retention_return') t.ret += amt;
+        else { t.vt += gross; if (d >= r.start) t.vm += gross; t.am += Number(p.row.advance_amortized) || 0; t.held += Number(p.row.retention_held) || 0; }
+      });
+      ct.push([projects[c.project_id] ? String(projects[c.project_id].name) : '', String((peopleById[c.supplier_id] || {}).name || ''), String(c.description || ''),
+        String(c.currency || home), round2_(Number(c.amount) || 0), round2_(t.vm), round2_(t.pm), round2_(t.vt), round2_(t.pt),
+        round2_(t.adv - t.am), round2_(t.held - t.ret), round2_((Number(c.amount) || 0) - t.pt)]);
+    });
+    files.push({ kind: 'contracts', name: tr_('pkg.file.contracts', { month: month }), rows: ct.length - 1, text: pkgCsv_(ct) });
+  }
 
   return { month: month, files: files, closed: !!closeRow, fingerprint: monthFingerprint_(month) };
 }
@@ -312,4 +342,16 @@ function sendAccountantPackage(payload) {
   if (ROWS_MEMO_) delete ROWS_MEMO_['Month Closes'];
   changeNoteEvent_('package', month, JSON.stringify({ to: to, corrected: corrected }));
   return { sent: true, corrected: corrected, to: to, cc: opts.cc || '', files: built.files.map(function (f) { return { name: f.name, rows: f.rows }; }) };
+}
+
+// The last columns of a movement: the detracción an income had kept (in soles: what went to the Banco de la Nación), and, for a
+// construction contract's payment, the contract and its valuation's parts (Detractions.gs, Contracts.gs).
+function pkgDetrContractCells_(e, payByEntry, contractsById, peopleById) {
+  var detr = e.type === 'income' ? (Number(e.detraction_pen) > 0 ? round2_(Number(e.detraction_pen)) : Number(e.detraction_amount) > 0 && String(e.currency) === 'PEN' ? round2_(Number(e.detraction_amount)) : '') : '';
+  var p = e.type === 'expense' ? payByEntry[e.id] : null;
+  var c = p ? contractsById[p.contract_id] : null;
+  if (!c) return [detr, '', '', '', '', ''];
+  var name = [String((peopleById[c.supplier_id] || {}).name || ''), String(c.description || '')].filter(Boolean).join(' · ');
+  var val = p.kind === 'valuation';
+  return [detr, name, tr_('pkg.ck.' + p.kind), val ? round2_(Number(p.gross) || 0) : '', val ? round2_(Number(p.advance_amortized) || 0) : '', val ? round2_(Number(p.retention_held) || 0) : ''];
 }
