@@ -61,6 +61,7 @@
   --z-toast: 400;
   --z-welcome-exit: 450;
   --z-pop-tip: 99990;
+  --z-demo-line: 100003;   /* the company test copy's line at the top: above everything, practices included */
 }
 
 * { box-sizing: border-box; }
@@ -4473,3 +4474,12 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .co-no-invest .ov-sum-tile.loans { grid-column: 1 / -1; }
 .co-no-invest #entry-type-tabs { grid-template-columns: repeat(3, 1fr); }
 .co-no-invest .home-four { grid-template-columns: repeat(3, minmax(max-content, auto)); }
+
+/* Company test copy (app.js § Company test copy): a thin line at the very top says which copy this is; its card leads More. */
+body.company-demo::before {
+  content: ""; position: fixed; left: 0; right: 0; top: env(safe-area-inset-top, 0px); height: 3px; background: var(--warn); z-index: var(--z-demo-line); pointer-events: none;
+}
+body.company-demo #more-signout-btn { display: none; }
+.more-demo-card { border: 1px solid var(--warn-border); background: var(--warn-bg-soft); }
+.more-demo-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.more-demo-actions .add-inline, .more-demo-actions button.primary + button { margin: 0; }

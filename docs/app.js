@@ -22,6 +22,19 @@ function setApiUrl(url) {
   }
 })();
 
+// The company test copy (§ Company test copy) never reaches Google or the owner's relay: every such request is refused on the phone.
+(function companyDemoNetGuard_() {
+  if (!companyDemoOn_() || !window.fetch) return;
+  const realFetch = window.fetch.bind(window);
+  window.fetch = (url, opts) => {
+    const u = String((url && url.url) || url || "");
+    if (/script\.google(usercontent)?\.com|googleapis\.com|workers\.dev|api\.telegram\.org|graph\.facebook\.com/i.test(u)) {
+      return Promise.reject(new TypeError("company test copy: no network to " + u.split("/")[2]));
+    }
+    return realFetch(url, opts);
+  };
+})();
+
 const TYPE_LABELS = {
   expense: tr("type.expense"),
   income: tr("type.income"),
@@ -1219,7 +1232,8 @@ async function callApiOnce_(action, payload, attempt, startedAt) {
     const timeoutId = setTimeout(() => controller.abort(), LONG_ACTIONS[action] || 25000);
     let res;
     try {
-      res = await fetch(apiUrl, {
+      res = await (apiUrl === COMPANY_DEMO_API_ ? companyDemoFetch_ : fetch)(apiUrl, {
+        action,
         method: "POST",
         headers: { "Content-Type": "text/plain;charset=utf-8" },
         // `lang`: the server answers (errors, category names…) in the app's language.
@@ -5675,7 +5689,7 @@ function normalizeSearchText_(text) {
 function searchCacheDb_() {
   return new Promise((resolve, reject) => {
     if (!window.indexedDB) return reject(new Error("no indexedDB"));
-    const req = indexedDB.open("expense-tracker", 1);
+    const req = indexedDB.open(companyDemoOn_() ? "expense-tracker-company-demo" : "expense-tracker", 1);
     req.onupgradeneeded = () => req.result.createObjectStore("kv");
     req.onsuccess = () => resolve(req.result);
     req.onerror = () => reject(req.error);
@@ -16288,6 +16302,7 @@ function renderBackendUpdateBanner_() {
   stackTopBanners_();
 }
 function setUpdateAvailable_(on) {
+  if (companyDemoOn_()) on = false;   // the company test copy always runs the newest backend: there is nothing to update
   document.getElementById("more-update-btn").hidden = !on;
   document.body.classList.toggle("update-ready", !!on);
   // The red dot on More is only drawn: its spoken name says it too (Paola, 2026-11-18).
@@ -16306,6 +16321,7 @@ document.getElementById("backend-update-close").addEventListener("click", () => 
 async function checkBackendUpdate_() {
   const caps = (meta && meta.capabilities) || {};
   if (updateChecked_ || updateChecking_ || caps.perfLog !== false) return;   // false (not just missing) = a copy made by the installer
+  if (companyDemoOn_()) return;   // the company test copy always runs the newest backend
   // Known without asking anyone: this server lacks something the app needs.
   backendUrgent_ = REQUIRED_BACKEND_CAPS_.some((c) => !caps[c]);
   if (backendUrgent_) setUpdateAvailable_(true);
@@ -16593,6 +16609,7 @@ async function perfShareFirstDone_() {
 function maybeAskPerfShare_() {
   const caps = (meta && meta.capabilities) || {};
   if (appErased_) return;   // everything was just deleted: no questions for a person who is leaving
+  if (companyDemoOn_()) return;   // the company test copy sends nothing to anyone: nothing to ask
   if (!meta || caps.onboarding || !PerfShare.needsAsk(perfShareState_(), perfIsOwnerCopy_())) return;
   if (!document.getElementById("welcome-overlay").hidden || !document.getElementById("perf-share-modal-backdrop").hidden) return;
   openPerfShareModal_(null);
@@ -24094,6 +24111,7 @@ async function showBusinessScreen() {
   showMoreSub_("business");
   fillBusinessPeriodSelects_();
   document.getElementById("business-invite").hidden = !perfIsOwnerCopy_();   // the owner's copy only
+  document.getElementById("business-demo").hidden = !perfIsOwnerCopy_() || companyDemoOn_();
   await refreshBusinessList_();
 }
 
@@ -24119,6 +24137,121 @@ document.getElementById("business-invite-copy").addEventListener("click", async 
   try { await navigator.clipboard.writeText(text); msg.textContent = tr("coInv.copied"); }
   catch (err) { msg.textContent = tr("coInv.copyByHand"); box.focus(); box.select(); }
 });
+
+// ---- Company test copy (owner's copy; plan "Empresa de prueba en el teléfono", 2026-11-27) ----
+// A company copy that runs inside this phone: the real backend on the test server's fake Google layer, in a worker
+// (docs/company-demo/), with made-up data. The phone's saved settings are swapped: the real copy's are kept aside in IndexedDB
+// ("et-company-demo-swap") while the test copy runs, and put back on Exit, so nothing of the test copy can reach the real one.
+// No request leaves the phone (companyDemoNetGuard_ above); the backend code comes from GitHub (the newest main), kept on the phone.
+const COMPANY_DEMO_API_ = "demo:company";
+function companyDemoOn_() { try { return localStorage.getItem("etCompanyDemo") === "on"; } catch (e) { return false; } }
+function companyDemoSwapDb_() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open("et-company-demo-swap", 1);
+    req.onupgradeneeded = () => req.result.createObjectStore("kv");
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function companyDemoSwap_(key, value) {
+  const db = await companyDemoSwapDb_();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("kv", value === undefined ? "readonly" : "readwrite");
+    const store = tx.objectStore("kv");
+    let out;
+    if (value === undefined) { const r = store.get(key); r.onsuccess = () => { out = r.result; }; }
+    else if (value === null) store.delete(key);
+    else store.put(value, key);
+    tx.oncomplete = () => resolve(out);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+const companyDemoDump_ = () => { const o = {}; for (let i = 0; i < localStorage.length; i++) { const k = localStorage.key(i); o[k] = localStorage.getItem(k); } return o; };
+function companyDemoLoad_(o) { localStorage.clear(); Object.keys(o || {}).forEach((k) => localStorage.setItem(k, o[k])); }
+// What a new test copy starts with on the phone: signed in to the engine, the live screens, Spanish (the language picker still works).
+const companyDemoStart_ = () => ({ etCompanyDemo: "on", apiUrl: COMPANY_DEMO_API_, accessCode: "company-test-copy", etChannel: "live", lang: "es" });
+const companyDemoReload_ = () => location.replace(location.pathname + "?cb=" + Date.now());
+
+async function companyDemoEnter_() {
+  if (pendingSaveCount_()) { await showAppMessage_(tr("demo.waitSaves")); return; }
+  const msg = document.getElementById("business-demo-msg");
+  try {
+    const real = companyDemoDump_();
+    await companyDemoSwap_("real", real);
+    const kept = await companyDemoSwap_("real");
+    if (!kept || Object.keys(kept).length !== Object.keys(real).length) throw new Error("not kept");
+    const demo = await companyDemoSwap_("demo");
+    companyDemoLoad_(demo || companyDemoStart_());
+    localStorage.setItem("etCompanyDemo", "on");
+  } catch (e) { msg.textContent = tr("demo.cannotOpen"); return; }
+  companyDemoReload_();
+}
+async function companyDemoExit_() {
+  const real = await companyDemoSwap_("real").catch(() => null);
+  if (!real) { await showAppMessage_(tr("demo.noRealCopy")); return; }
+  const demo = companyDemoDump_();
+  await companyDemoSwap_("demo", demo).catch(() => {});
+  companyDemoLoad_(real);
+  await companyDemoSwap_("real", null).catch(() => {});
+  companyDemoReload_();
+}
+async function companyDemoReset_() {
+  const start = await askConfirmApp_(tr("demo.resetAsk"), tr("demo.resetData"), { plain: true, choices: [{ label: tr("demo.resetEmpty"), value: "empty" }] });
+  if (!start) return;
+  showToast_(tr("demo.resetting"), true);
+  try { await companyDemoAsk_("reset", { start: start === true ? "data" : "empty" }); }
+  catch (e) { await showAppMessage_(tr("demo.bootFailed", { error: e.message })); return; }
+  const keepLang = localStorage.getItem("lang");
+  companyDemoLoad_(Object.assign(companyDemoStart_(), keepLang ? { lang: keepLang } : {}));
+  try { indexedDB.deleteDatabase("expense-tracker-company-demo"); } catch (e) { /* only a search copy */ }
+  companyDemoReload_();
+}
+
+// The worker: started on the first request, one message per request, answered in order.
+let companyDemoWorker_ = null, companyDemoSeq_ = 0, companyDemoBoot_ = null;
+const companyDemoWaiting_ = new Map();
+function companyDemoAsk_(type, extra) {
+  if (!companyDemoWorker_) {
+    const v = (/[?&]v=([^&]+)/.exec((document.querySelector('script[src*="app.js"]') || {}).src || "") || [])[1] || "";
+    companyDemoWorker_ = new Worker("company-demo/worker.js?v=" + v);
+    companyDemoWorker_.onmessage = (ev) => {
+      const w = companyDemoWaiting_.get(ev.data.id);
+      if (!w) return;
+      companyDemoWaiting_.delete(ev.data.id);
+      if (ev.data.ok) w.resolve(ev.data.data); else w.reject(new Error(ev.data.error));
+    };
+  }
+  const id = ++companyDemoSeq_;
+  return new Promise((resolve, reject) => {
+    companyDemoWaiting_.set(id, { resolve, reject });
+    companyDemoWorker_.postMessage(Object.assign({ id, type }, extra || {}));
+  });
+}
+// Stands in for fetch(apiUrl, …) in callApiOnce_: the same request text, the engine's reply.
+async function companyDemoFetch_(url, opts) {
+  if (!companyDemoBoot_) {
+    // The test server serves its own backend files (tests/harness/server.js); the real site takes them from GitHub.
+    companyDemoBoot_ = companyDemoAsk_("boot", { sourcesUrl: /\.github\.io$/.test(location.hostname) ? "" : "/company-demo-sources.json" });
+    companyDemoBoot_.catch(() => { companyDemoBoot_ = null; });
+  }
+  let text;
+  try {
+    await companyDemoBoot_;
+    text = (await companyDemoAsk_("call", { body: opts.body, action: opts.action })).text;
+  } catch (e) {
+    text = JSON.stringify({ ok: false, error: tr("demo.bootFailed", { error: e.message }) });
+  }
+  return { json: async () => JSON.parse(text) };
+}
+
+(function companyDemoInit_() {
+  const on = companyDemoOn_();
+  document.body.classList.toggle("company-demo", on);
+  document.getElementById("more-demo-card").hidden = !on;
+  document.getElementById("business-demo-open").addEventListener("click", companyDemoEnter_);
+  document.getElementById("more-demo-exit").addEventListener("click", companyDemoExit_);
+  document.getElementById("more-demo-reset").addEventListener("click", companyDemoReset_);
+})();
 
 async function refreshBusinessList_() {
   const errorEl = document.getElementById("business-error");

@@ -942,6 +942,15 @@
     </div>
 
     <div id="screen-more" class="screen" hidden>
+      <!-- Only inside the company test copy (app.js § Company test copy). -->
+      <div class="card more-demo-card" id="more-demo-card" hidden>
+        <h2 data-i18n="demo.cardTitle">Company test copy</h2>
+        <p class="hint" data-i18n="demo.cardHint">Made-up data, only on this phone. Your real copy is kept aside until you exit.</p>
+        <div class="more-demo-actions">
+          <button type="button" class="primary" id="more-demo-exit" data-i18n="demo.exit">Exit the test copy</button>
+          <button type="button" class="add-inline" id="more-demo-reset" data-i18n="demo.reset">Start over</button>
+        </div>
+      </div>
       <div class="card more-group">
         <h2 data-i18n="nav.more">More</h2>
           <!-- A main tab the person took out of the bar (More → My profile → My tabs) is reached from here. -->
@@ -1261,6 +1270,13 @@
           <button type="button" class="primary" id="business-invite-copy" data-i18n="coInv.copy">Copy the invitation</button>
           <p class="hint" id="business-invite-msg" role="status"></p>
           <textarea id="business-invite-text" readonly rows="6" hidden></textarea>
+        </div>
+        <!-- The owner's copy only: a company copy with made-up data that runs inside this phone (app.js § Company test copy). -->
+        <div id="business-demo" class="business-invite" hidden>
+          <h3 data-i18n="demo.title">Company test copy</h3>
+          <p class="hint" data-i18n="demo.hint">A company copy with made-up data that runs inside this phone, with the newest version of the app. Nothing reaches your real copy. To come back: More → Exit the test copy.</p>
+          <button type="button" class="primary" id="business-demo-open" data-i18n="demo.open">Try a company copy</button>
+          <p class="hint" id="business-demo-msg" role="status"></p>
         </div>
         <div class="friends-editbar" id="business-editbar" hidden>
           <button type="button" class="add-inline" id="business-selectall-btn" data-i18n="friends.selectAll">Select all</button>
