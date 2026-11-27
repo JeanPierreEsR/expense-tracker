@@ -70,7 +70,9 @@ test("one transfer start, a path for each kind, and each check applies only to i
   const fn = section("function startTransferReal_(", "// ---- First-use practice: Needs review ----");
   for (const k of ["rt.transfer.pick", "rt.transfer.kind", "rt.repay.direction", "rt.loan.direction", "rt.loan.due", "rt.repay.done", "rt.loan.done", "rt.exchange.done"]) assert.ok(fn.includes(k), k);
   assert.match(fn, /ok: \(\) => submitted \|\| !debt\(\) \|\| friendOk\(\)/, "a friend is only needed on a repayment or a loan");
-  assert.match(fn, /ok: \(\) => submitted \|\| !is\("between", "repayment", "loan"\)\(\) \|\| amountOk\(\)/, "an exchange has its own amounts");
+  assert.match(fn, /ok: \(\) => submitted \|\| !is\("between", "repayment", "loan"(, "partner_in", "distribution")?\)\(\) \|\| amountOk\(\)/, "an exchange has its own amounts");
+  assert.ok(!/ok: \(\) => submitted \|\| !is\([^)]*"exchange"[^)]*\)\(\) \|\| amountOk/.test(fn), "...and the amount check never covers it");
+  for (const k of ["rt.partner.who", "rt.partner.kind", "rt.distribution.withholding", "rt.partnerIn.done", "rt.distribution.done"]) assert.ok(fn.includes(k), k);   // company copies (2026-11-27)
 });
 
 test("the amount is asked for even when already explained: Save needs it", () => {

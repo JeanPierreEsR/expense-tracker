@@ -13296,6 +13296,7 @@ function savePartnerFromEntryForm_() {
     if (!(w >= 0)) return fail("partner.badWithholding");
     body.withholding = w;
   }
+  transferNoteSaved_();   // ends the tutorial offer for this kind (a guided save counts as taught)
   const who = pick === "__new__" ? newName : ((meta.friends || []).find((f) => f.id === pick) || {}).name || "";
   const label = `${tr(kind === "distribution" ? "transfer.kind.distribution" : "transfer.kind.partnerIn")} · ${who} ${currency} ${moneyFmt(amount)}`;
   resetEntryFormFields_();
@@ -32629,7 +32630,7 @@ function startReviewTopUp_(entries, specials) {
 }
 
 // Transfers ("+" → Transfer): one start, then a path per kind (owner, 2026-11-09). Choosing the tab may be only a look, so it asks. Confirming one in Needs review does not count.
-const TRANSFER_FEATURE_ = { between: "transfer", repayment: "repay", loan: "loan", exchange: "exchange" };
+const TRANSFER_FEATURE_ = { between: "transfer", repayment: "repay", loan: "loan", exchange: "exchange", partner_in: "partner-in", distribution: "distribution" };   // the last two: company copies
 const TRANSFER_PRACTICE_ = { repay: "loans", loan: "loans-standalone" };   // the practice that already teaches it, where its name differs
 function transferKindTaught_(kind) {
   const f = TRANSFER_FEATURE_[kind];
@@ -32715,9 +32716,20 @@ function startTransferReal_(kind) {
   steps.push(only(debt, { target: "#repayment-direction-tabs", text: () => tr(is("loan")() ? "rt.loan.direction" : "rt.repay.direction"), tap: "#repayment-direction-tabs", button: next }));
   steps.push(only(debt, { key: "friend", target: () => [el("repayment-friend"), el("repayment-hint")], text: (fix) => tr(fix ? "rt.transfer.friendFix" : is("loan")() ? "rt.loan.friend" : "rt.repay.friend"), visit: "#repayment-friend", button: next, ok: () => submitted || !debt() || friendOk(), holdsUntil: "save" }));
   // Everything except an exchange, which has its own fields. The amount is asked for even when already explained: Save needs it.
-  steps.push(only(is("between", "repayment", "loan"), { key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : "spot.g.amount"), blurTap: true,
-    until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || !is("between", "repayment", "loan")() || amountOk(), holdsUntil: "save" }));
-  if (isNew("date")) steps.push(only(is("between", "repayment", "loan"), { field: "date", target: "#date", text: () => tr(is("loan")() ? "rt.loan.date" : "spot.g.date"), visit: "#date", button: next }));
+  // A partner's money / a profit distribution (company copies, owner's pin 2026-11-26): who, and what it is.
+  const partner = is("partner_in", "distribution");
+  const partnerOk = () => !!el("entry-partner").value;   // "+ New partner…" counts: its name is the next step (and Save says if it is missing)
+  const pKindOk = () => !!document.querySelector('input[name="entry-partner-kind"]:checked');
+  steps.push(only(partner, { key: "partner", target: "#entry-partner", text: (fix) => tr(fix ? "rt.partner.whoFix" : "rt.partner.who"), visit: "#entry-partner", button: next,
+    ok: () => submitted || !partner() || partnerOk(), holdsUntil: "save" }));
+  steps.push(only(() => partner() && el("entry-partner").value === "__new__", { target: "#entry-partner-new", text: () => tr("rt.partner.newName"), blurTap: true,
+    until: () => !!el("entry-partner-new").value.trim() && document.activeElement !== el("entry-partner-new") }));
+  steps.push(only(is("partner_in"), { key: "pkind", target: "#entry-partner-kind-box", text: (fix) => tr(fix ? "rt.partner.kindFix" : "rt.partner.kind"),
+    until: pKindOk, ok: () => submitted || !is("partner_in")() || pKindOk(), holdsUntil: "save" }));
+  steps.push(only(is("distribution"), { target: "#entry-partner-out-box", text: () => tr("rt.distribution.withholding"), visit: "#entry-partner-withholding", button: next }));
+  steps.push(only(is("between", "repayment", "loan", "partner_in", "distribution"), { key: "amount", field: "amount", target: "#amount", text: (fix) => tr(fix ? "spot.g.amountFix" : is("distribution")() ? "rt.distribution.amount" : "spot.g.amount"), blurTap: true,
+    until: () => amountOk() && document.activeElement !== el("amount"), ok: () => submitted || !is("between", "repayment", "loan", "partner_in", "distribution")() || amountOk(), holdsUntil: "save" }));
+  if (isNew("date")) steps.push(only(is("between", "repayment", "loan", "partner_in", "distribution"), { field: "date", target: "#date", text: () => tr(is("loan")() ? "rt.loan.date" : "spot.g.date"), visit: "#date", button: next }));
   // Under the date (owner, 2026-11-12): a date before the first day of use has ticked it already; ticking it by hand moves on.
   steps.push(only(() => is("loan")() && !document.getElementById("entry-opening-row").hidden, { target: "#entry-opening-row",
     text: () => tr(el("entry-opening").dataset.autoTicked && el("entry-opening").checked ? "rt.loan.openingAuto" : "rt.loan.opening"), button: next,
@@ -32726,6 +32738,7 @@ function startTransferReal_(kind) {
   steps.push(only(is("between"), { target: "#payment-method-field", text: () => tr("spot.g.accFrom"), visit: "#payment_method", button: next }));
   steps.push(only(is("between"), { target: "#to-payment-method-field", text: () => tr("rt.transfer.to"), visit: "#to_payment_method", button: next }));
   steps.push(only(() => debt() && !entryOpeningOn_(), { target: "#payment-method-field", text: () => tr(is("loan")() ? "rt.loan.account" : "rt.transfer.account"), visit: "#payment_method", button: next }));
+  steps.push(only(partner, { target: "#payment-method-field", text: () => tr(is("distribution")() ? "rt.distribution.account" : "rt.partner.account"), visit: "#payment_method", button: next }));
   // Which loans it pays (owner's plan, 2026-11-24): only where the list is offered (two or more open loans in that direction and currency).
   steps.push(only(() => is("repayment")() && realShown_("entry-repay-choose"), { target: "#entry-repay-choose", text: () => tr("rt.repay.choose"), button: next }));
   const tickOpen = () => is("repayment")() && !el("entry-repay-choose").hidden && !el("entry-repay-choose-panel").hidden && !(entryRepayAllocations_() || []).length;
@@ -32741,18 +32754,19 @@ function startTransferReal_(kind) {
     text: () => { const e = xError(); return e ? tr("spot.x.s10err", { error: e }) : tr("spot.x.s10"); },
     before: async () => { chosen = kindNow(); submitted = true; el("exchange-form-error").textContent = ""; return true; }, until: () => !newEntrySheetOpen_ }));
   // Save, and what it did
-  steps.push(only(is("between", "repayment", "loan"), { key: "save", target: () => repayTickTarget_("entry-repay-choose", tickOpen, realSaveTarget_("submit-btn", "form-error")),
+  steps.push(only(is("between", "repayment", "loan", "partner_in", "distribution"), { key: "save", target: () => repayTickTarget_("entry-repay-choose", tickOpen, realSaveTarget_("submit-btn", "form-error")),
     text: () => { const err = lastError(); return err ? tr("spot.g.saveErr", { error: err }) : tickOpen() ? tr("rt.repay.tick", { label: el("submit-btn").textContent.trim() }) : tr("spot.g.save"); },
     before: async () => { chosen = kindNow(); el("form-error").textContent = ""; return true; },
     until: () => !!(guided_ && guided_.savedId) || !newEntrySheetOpen_ }));
   let friend = "";
-  steps.push(...realWhereSteps_(() => (debt() ? realLoanRow_(friend) : is("exchange")() ? document.querySelector("#entry-list .entry-exchange") : realEntryRow_(guided_ && guided_.savedId)),
+  steps.push(...realWhereSteps_(() => (debt() ? realLoanRow_(friend) : is("exchange")() ? document.querySelector("#entry-list .entry-exchange") : partner() ? document.getElementById("co-partners-card") : realEntryRow_(guided_ && guided_.savedId)),
     () => (chosen === "repayment" && lastNothingOwedChoice_ === "entry" ? tr("rt.repay.doneEntry")
       : chosen === "loan" && lastOpeningDebt_ ? tr("rt.loan.doneOpening")
-      : tr({ between: "rt.transfer.done", repayment: "rt.repay.done", loan: "rt.loan.done", exchange: "rt.exchange.done" }[chosen] || "rt.transfer.done")),
-    { unsaved: () => !debt() && !is("exchange")() && !(guided_ && guided_.savedId) && !newEntrySheetOpen_,
+      : tr({ between: "rt.transfer.done", repayment: "rt.repay.done", loan: "rt.loan.done", exchange: "rt.exchange.done", partner_in: "rt.partnerIn.done", distribution: "rt.distribution.done" }[chosen] || "rt.transfer.done")),
+    { unsaved: () => !debt() && !is("exchange")() && !partner() && !(guided_ && guided_.savedId) && !newEntrySheetOpen_,
       // Nothing was owed and it was saved as an expense / income: no Loans row to show, only the words.
-      before: async () => { if (chosen === "repayment" && lastNothingOwedChoice_ === "entry") return false; friend = el("repayment-friend").value; if (debt()) { showScreen("loans"); return true; } return realOnHome_(); }, poke: () => { (debt() ? refreshLoans() : refreshEntryList()).catch(() => {}); } }));
+      before: async () => { if (chosen === "repayment" && lastNothingOwedChoice_ === "entry") return false; friend = el("repayment-friend").value; if (debt()) { showScreen("loans"); return true; } if (partner()) { showScreen("overview"); return true; } return realOnHome_(); },
+      poke: () => { (debt() ? refreshLoans() : partner() ? refreshOverview() : refreshEntryList()).catch(() => {}); } }));
   Spotlight.run(realSteps_(steps), {
     labels: realLabels_(),
     onFinish: async (how) => { el("entry-form").removeEventListener("submit", onSubmit, true); if (how === "lost") setTimeout(() => showAppMessage_(tr("spot.g.lost")), 0); guided_ = null; },
