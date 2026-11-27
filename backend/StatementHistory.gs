@@ -237,11 +237,12 @@ function stmtHistoryPlan_(analysis, platforms) {
   var sts = analysis.statements || [];
   var actions = [];
   var aside = [];
-  var counts = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, fees: 0, linked: 0, completed: 0, charges: 0, discounts: 0, recharges: 0 };
+  var counts = { expenses: 0, income: 0, refunds: 0, refundIncome: 0, transfers: 0, fees: 0, linked: 0, completed: 0, charges: 0, discounts: 0, recharges: 0, flips: 0 };
   var charges = [];   // statement lines that are the charge of a purchase left pending (Charges.gs)
   var noAccount = [];   // lines that ARE an entry the person saved with no account: that entry gets this statement's account
   var recharges = [];   // card lines in another currency than a purchase recorded in the app (StatementMatch.gs)
   var discounts = [];   // card lines that charged LESS than a purchase recorded in the app (StatementMatch.gs)
+  var flips = [];   // lines that ARE an entry saved the wrong way round (an income that is an expense, a transfer the wrong way): StatementMatch.gs
   var usedCharges = {};   // a charge is reversed by one refund only
   var expectedRefunds = listExpectedRefunds_();   // refunds on their way (Refunds.gs): a line of that money on that card is that refund
   var leftOut = { handled: 0, waiting: 0, possible: 0, noAccount: 0, fromPeople: 0 };
@@ -290,6 +291,14 @@ function stmtHistoryPlan_(analysis, platforms) {
         recharges.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname,
           clear: l.recharge.clear, entryId: l.recharge.entryId, options: l.recharge.options });
         if (l.recharge.clear) { actions.push({ type: 'use_bank_charge', stmt: si, line: li, entryId: l.recharge.entryId }); counts.recharges++; }
+        return;
+      }
+      if (l.status === 'flipped') {
+        // An entry saved the wrong way round (owner, 2026-11-26): it is turned around when the pair is clear (ticked by default), else the
+        // person picks. Never added as a second entry by itself; an entry the person must fix by hand (shared, a repayment's) is only shown.
+        flips.push({ stmt: si, line: li, date: l.date, description: l.description, amount: l.amount, currency: l.currency, account: st.account.nickname,
+          clear: l.flip.clear, entryId: l.flip.entryId, options: l.flip.options });
+        if (l.flip.clear) { actions.push({ type: 'fix_entry_type', stmt: si, line: li, entryId: l.flip.entryId }); counts.flips++; }
         return;
       }
       if (l.status === 'discount') {
@@ -407,6 +416,12 @@ function stmtHistoryPlan_(analysis, platforms) {
   });
 
   stmtGroupAside_(aside);
+  // Entries the bank may never have charged (owner's plan, 2026-11-26, Part B): only listed; nothing happens until the person picks.
+  var notCharged = [];
+  sts.forEach(function (st, si) {
+    if (!st.account) return;
+    (st.notCharged || []).forEach(function (n) { notCharged.push(Object.assign({ stmt: si, account: st.account.nickname, accountId: st.account.id }, n)); });
+  });
   var candidates = imported.concat(aside.filter(function (a) { return a.optIn; }).map(function (a) {
     return { stmt: a.stmt, line: a.line, date: a.date, description: a.description, amount: a.amount, currency: a.currency, account: a.account, kind: 'aside' };
   }));
@@ -414,7 +429,7 @@ function stmtHistoryPlan_(analysis, platforms) {
   return {
     actions: actions,
     summary: {
-      counts: counts, leftOut: leftOut, spent: spent, aside: aside, charges: charges, discounts: discounts, recharges: recharges, noAccount: noAccount, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
+      counts: counts, leftOut: leftOut, spent: spent, aside: aside, charges: charges, discounts: discounts, recharges: recharges, flips: flips, notCharged: notCharged, noAccount: noAccount, peopleOut: peopleOut, incomeLines: incomeLines, platforms: (platforms || []).map(function (p) { return { id: p.id, name: p.name }; }),
       candidates: candidates, exchangeSuggestions: stmtExchangeSuggestions_(candidates),
       unknownAccounts: Object.keys(unknownAccounts),
       newAccounts: stmtNewAccountProposals_(sts),   // accounts the statements name that the app does not have yet, with the defaults it would give them

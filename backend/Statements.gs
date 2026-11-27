@@ -431,7 +431,12 @@ function analyzeStatements(payload) {
   });
   // What forgiving a debt booked moved no money, so no bank line is ever that entry.
   var forgivenIds = forgivenessEntryIds_();
-  var result = matchStatements_(matcherInput, entries.filter(function (e) { return !forgivenIds[e.id]; }), { loanTransferIds: loanTransferIds, repaymentTotals: buildRepaymentTotalsForMatching_(), chargeRatio: chargeExpectedRatio_ });
+  // Entries a change of type would break (StatementMatch.gs, "saved the wrong way round"): shared with a friend, or a repayment's extra.
+  var lockedIds = {};
+  getAllRows('Entry Splits').forEach(function (r) { if (r.entry_id) lockedIds[r.entry_id] = 'shared'; });
+  getAllRows('Loans').forEach(function (r) { if (r.origin === 'entry' && r.entry_id) lockedIds[r.entry_id] = 'shared'; });
+  getAllRows('Settlements').forEach(function (r) { if (r.gap_entry_id) lockedIds[r.gap_entry_id] = 'repayment'; });
+  var result = matchStatements_(matcherInput, entries.filter(function (e) { return !forgivenIds[e.id]; }), { loanTransferIds: loanTransferIds, repaymentTotals: buildRepaymentTotalsForMatching_(), chargeRatio: chargeExpectedRatio_, lockedIds: lockedIds, flips: !!payload.flips });
   tick('matcher');
   var entryById = {};
   entries.forEach(function (e) { entryById[e.id] = e; });
@@ -465,6 +470,12 @@ function analyzeStatements(payload) {
         o.recharge = { clear: r.recharge.clear, entryId: r.recharge.entryId, options: r.recharge.options.map(function (c) {
           return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd, wrong: !!c.wrong }); }) };
         counts.recharges = (counts.recharges || 0) + 1;
+        return o;
+      }
+      if (r.status === 'flipped') {
+        o.flip = { clear: r.flip.clear, entryId: r.flip.entryId, options: r.flip.options.map(function (c) {
+          return Object.assign(stmtEntrySummary_(entryById[c.entryId], catsById, pmsById), { dayDiff: c.dd, kind: c.kind, locked: c.locked }); }) };
+        counts.flips = (counts.flips || 0) + 1;
         return o;
       }
       if (r.status === 'discount') {
@@ -592,6 +603,21 @@ function analyzeStatements(payload) {
       balanceChecks.push(chk);
     });
   });
+  // Entries on a statement's account, inside its period, that no line explains: the bank may never have charged them (owner's plan,
+  // 2026-11-26, Part B). Only for a phone that shows them (`notCharged`); see stmtNotCharged_ (StatementBalance.gs).
+  if (payload.notCharged) {
+    var keptIds = {};
+    getAllRows('Statement Lines').forEach(function (r) { if (r.outcome === 'kept' && r.entry_id) keptIds[r.entry_id] = true; });
+    var asked = {};
+    stmts.forEach(function (s, idx) {
+      var pm = pmFor(s.key);
+      if (!pm || pm.noAccount || String(pm.id).indexOf('new:') === 0 || pm.type === 'investment' || pm.type === 'cash') return;
+      if (s.source === 'app' || (s.kind !== 'csv' && s.verified === false) || Number(s.unclear) > 0) return;
+      var sameAccount = out.filter(function (o, j) { var p2 = pmFor(stmts[j].key); return p2 && p2.id === pm.id; }).map(function (o) { return o.lines; });
+      out[idx].notCharged = stmtNotCharged_({ pm: pm, statement: s, lines: out[idx].lines, sameAccount: sameAccount, confirmed: confirmedAll,
+        openings: openingsByPm[pm.id] || [], inboundIds: inboundIds, kept: keptIds, locked: lockedIds, asked: asked });
+    });
+  }
   tick('done');
   var expenseCats = getAllRows('Categories').filter(function (c) { return c.type === 'expense'; })
     .map(function (c) { return { id: c.id, name: c.name }; });

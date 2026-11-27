@@ -89,6 +89,7 @@ function stmtForeseeCoverage_(args, day) {
   (args.lines || []).forEach(function (l) {
     if (l.status === 'matched' && l.entry && l.entry.id) cover(l.entry.id);
     if (l.discount && l.discount.clear && l.discount.entryId) cover(l.discount.entryId);
+    if (l.flip && l.flip.clear && l.flip.entryId) cover(l.flip.entryId);
     if (l.completesTransfer && l.completesTransfer.entry && l.completesTransfer.entry.id) cover(l.completesTransfer.entry.id);
   });
   return function () {
@@ -142,7 +143,7 @@ function stmtBalanceCheckFrom_(args, out, own, governing) {
       return { id: e.id, date: String(e.date || '').slice(0, 10), description: String(e.description || ''), type: e.type,
         recorded: Number(e.amount), charged: Math.round(-Number(l.amount) * 100) / 100, shift: Math.round((Number(l.amount) + Number(e.amount)) * 100) / 100 };
     };
-    var missing = 0, pending = 0, missingN = 0, missingItems = [], pendingN = 0, discounted = 0, discountedN = 0, other = 0, otherN = 0, noAcct = 0, noAcctN = 0;
+    var missing = 0, pending = 0, missingN = 0, missingItems = [], pendingN = 0, discounted = 0, discountedN = 0, other = 0, otherN = 0, noAcct = 0, noAcctN = 0, flipped = 0, flippedN = 0;
     // A purchase the card charged in ANOTHER currency (StatementMatch.gs, 'recharge'): until it takes the charge, the line is missing in
     // its currency and the purchase sits in the other one. Both halves are named here instead of looking unexplained.
     (args.lines || []).forEach(function (l) {
@@ -161,6 +162,14 @@ function stmtBalanceCheckFrom_(args, out, own, governing) {
     (args.lines || []).forEach(function (l, li) {
       if (l.currency !== cur || (l.date <= after && !lineNotYet(l))) return;
       if (l.recharge && l.recharge.clear && l.recharge.entryId) { other += Number(l.amount); otherN++; return; }
+      // A line that IS an entry saved the wrong way round (StatementMatch.gs, 'flipped'): the app counts that entry the other way, so the
+      // fix moves the balance by twice the line (once when the entry had no account yet: it gets this one).
+      if (l.flip && l.flip.clear && l.flip.entryId) {
+        var fe = args.entryById[l.flip.entryId];
+        if (fe && fe.status === 'confirmed') {
+          flipped += (fe.payment_method_id === pm.id || fe.to_payment_method_id === pm.id ? 2 : 1) * Number(l.amount); flippedN++; return;
+        }
+      }
       // A card line paired with a purchase it charged LESS than (a discount, StatementMatch.gs): the purchase is in the app, only the
       // discount is not yet — it disappears once the purchase takes the bank's amount.
       if (l.discount && l.discount.clear && l.discount.entryId) {
@@ -191,7 +200,8 @@ function stmtBalanceCheckFrom_(args, out, own, governing) {
     out.discounted = { net: Math.round(discounted * 100) / 100, lines: discountedN };
     out.otherCurrency = { net: Math.round(other * 100) / 100, lines: otherN };
     out.noAccount = { net: Math.round(noAcct * 100) / 100, lines: noAcctN };
-    out.unexplained = Math.round((out.diff - missing - pending - discounted - other - noAcct - insideShift) * 100) / 100;
+    out.flipped = { net: Math.round(flipped * 100) / 100, lines: flippedN };
+    out.unexplained = Math.round((out.diff - missing - pending - discounted - other - noAcct - flipped - insideShift) * 100) / 100;
     // A card posts what was bought in the last days before the closing on the NEXT statement (owner, 2026-11-10): those purchases are
     // named apart ("probably on the next statement") and no longer count as unexplained.
     // The starting balance itself, checked by this statement (owner's plan, 2026-11-11, step 3).
@@ -260,6 +270,7 @@ function stmtAppOnlyEntries_(args, governing, after) {
     if (l.fillsCharge && l.fillsCharge.entryId) explained[l.fillsCharge.entryId] = true;
     if (l.discount && l.discount.clear && l.discount.entryId) explained[l.discount.entryId] = true;
     if (l.recharge && l.recharge.clear && l.recharge.entryId) explained[l.recharge.entryId] = true;
+    if (l.flip && l.flip.clear && l.flip.entryId) explained[l.flip.entryId] = true;
   });
   var items = [];
   (args.confirmed || []).forEach(function (e) {
@@ -357,6 +368,66 @@ function stmtExplainedIds_(args) {
     if (l.fillsCharge && l.fillsCharge.clear && l.fillsCharge.entryId) put(l.fillsCharge.entryId, l);
     if (l.discount && l.discount.clear && l.discount.entryId) put(l.discount.entryId, l);
     if (l.recharge && l.recharge.clear && l.recharge.entryId) put(l.recharge.entryId, l);
+    if (l.flip && l.flip.clear && l.flip.entryId) put(l.flip.entryId, l);
   });
   return ids;
+}
+
+
+// "Not on this statement: the bank may never have charged it" (owner's plan, 2026-11-26, Part B): the expenses and incomes saved on this
+// account, inside the statement's period (its own dates, else its lines' first and last), that no line of this upload's statements of the
+// account explains, that no saved statement covers and that the person did not already keep. A card's money out of the last
+// STMT_LATE_DAYS_ before the closing is left to "probably on the next statement". A repayment's extra and an income not received yet are
+// never asked (no account moved). Strongest first: from a bank e-mail or Apple Pay ('email'), or the same amount and place twice within
+// 2 days ('twice'); then the rest, oldest first. `effect` is the entry's effect on this account, `counted` whether a balance check of
+// this currency counts it (so the phone can recount when the person removes or moves it). Each entry is asked once (`asked`).
+var STMT_NOT_CHARGED_MAX_ = 50;
+function stmtNotCharged_(args) {
+  var pm = args.pm, s = args.statement, lines = args.lines || [];
+  var dates = (s.lines || []).map(function (l) { return String(l.date || ''); }).filter(Boolean).sort();
+  var start = (s.period && s.period.start) || dates[0] || '', end = (s.period && s.period.end) || dates[dates.length - 1] || '';
+  if (!start || !end) return [];
+  var currencies = {};
+  (s.lines || []).forEach(function (l) { if (l.currency) currencies[l.currency] = true; });
+  Object.keys(s.balances || {}).forEach(function (c) { currencies[c] = true; });
+  if (!Object.keys(currencies).length) return [];
+  var explained = {};
+  var put = function (id) { if (id) explained[id] = true; };
+  (args.sameAccount || [lines]).forEach(function (ls) {
+    ls.forEach(function (l) {
+      if (l.entry) put(l.entry.id);
+      put(l.gapEntryId);
+      if (l.handled) put(l.handled.entryId);
+      if (l.completesTransfer && l.completesTransfer.entry) put(l.completesTransfer.entry.id);
+      if (l.possible && l.possible.entry) put(l.possible.entry.id);
+      [l.fillsCharge, l.discount, l.recharge, l.flip].forEach(function (x) { if (x) { put(x.entryId); (x.options || []).forEach(function (o) { put(o.id); }); } });
+      if (l.reversal) (l.reversal.candidates || []).forEach(function (c) { if (c.entry) put(c.entry.id); });
+    });
+  });
+  var endDay = stmtDayNumber_(end);
+  var mine = (args.confirmed || []).filter(function (e) {
+    return (e.type === 'expense' || e.type === 'income') && e.payment_method_id === pm.id && !e.to_payment_method_id;
+  });
+  var key = function (e) { return [e.currency || homeCurrency_(), Number(e.amount).toFixed(2), String(e.merchant || e.description || '').toLowerCase().replace(/[^a-z0-9]+/g, '')].join('|'); };
+  var byKey = {};
+  mine.forEach(function (e) { (byKey[key(e)] = byKey[key(e)] || []).push(e); });
+  var items = [];
+  mine.forEach(function (e) {
+    var d = String(e.date || '').slice(0, 10), cur = e.currency || homeCurrency_();
+    if (!d || d < start || d > end || !currencies[cur] || explained[e.id] || args.kept[e.id] || args.asked[e.id]) return;
+    if (String(e.income_waiting || '') === '1' || args.locked[e.id] === 'repayment' || isPracticeEntry_(e)) return;
+    if (pm.type === 'credit' && e.type === 'expense' && endDay - stmtDayNumber_(d) <= STMT_LATE_DAYS_) return;
+    if (statementCoversAny_(e.id)) return;
+    var eff = signedEffectOnPaymentMethod_(e, pm.id, args.inboundIds);
+    if (!eff) return;
+    var twin = (byKey[key(e)] || []).some(function (o) { return o.id !== e.id && Math.abs(stmtDayNumber_(String(o.date).slice(0, 10)) - stmtDayNumber_(d)) <= 2; });
+    var reason = String(e.source || '') === 'email' || String(e.source || '') === 'shortcut' || String(e[APPLE_PAY_COLUMN_] || '') ? 'email' : twin ? 'twice' : '';
+    var governing = openingForCurrency_(args.openings || [], cur);
+    args.asked[e.id] = true;
+    items.push({ id: e.id, date: d, description: String(e.description || ''), type: e.type, amount: Number(e.amount), currency: cur,
+      effect: Math.round(eff * 100) / 100, reason: reason, shared: args.locked[e.id] === 'shared',
+      counted: !!(governing && entryCountsAfterOpening_(e, governing) && d <= end) });
+  });
+  items.sort(function (a, b) { return ((b.reason ? 1 : 0) - (a.reason ? 1 : 0)) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0); });
+  return items.slice(0, STMT_NOT_CHARGED_MAX_);
 }
