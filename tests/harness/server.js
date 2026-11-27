@@ -157,6 +157,12 @@ const sendJson = (res, obj, code) => { res.writeHead(code || 200, { "Content-Typ
 
 http.createServer((req, res) => {
   const url = req.url.split("?")[0];
+  // The company test copy (docs/company-demo/worker.js) takes the backend from here instead of GitHub: this folder's own files.
+  if (url === "/company-demo-sources.json") {
+    const dir = path.join(__dirname, "..", "..", "backend");
+    const files = fs.readdirSync(dir).filter((f) => f.endsWith(".gs")).map((f) => ({ name: f, source: fs.readFileSync(path.join(dir, f), "utf8") }));
+    return sendJson(res, { sha: "local", files, fakeGoogle: fs.readFileSync(path.join(__dirname, "fake-google.js"), "utf8") });
+  }
   if (req.method === "POST" && url === "/api") {
     let body = "";
     req.on("data", (c) => (body += c));
