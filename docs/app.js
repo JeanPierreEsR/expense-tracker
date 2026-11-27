@@ -11265,14 +11265,12 @@ function openBudgetSuggestion_(categoryId) {
 }
 function openRepeatSuggestion_(r) {
   showRecurringScreen();
-  // The "+" as the person would tap it: a first Programmed item gets its real tutorial, which asks each field. When no tutorial
-  // started, the form is filled in with what was recorded (the list may still be loading, so this is decided after the tap).
+  // The "+" as the person would tap it, with the form filled in with what was recorded: a first Programmed item still gets its real
+  // tutorial, which skips the name it was given (owner, 2026-11-27: it asked "What is it? For example, Rent." over the suggested name).
   setTimeout(() => {
+    recurringNextPrefill_ = { description: r.description, category_id: r.category_id, amount: r.amount, currency: r.currency, frequency: "monthly" };
     document.getElementById("add-recurring-btn").click();
-    setTimeout(() => {
-      if (Spotlight.isRunning()) return;
-      openRecurringModal(null, { description: r.description, category_id: r.category_id, amount: r.amount, currency: r.currency, frequency: "monthly" });
-    }, 900);
+    recurringNextPrefill_ = null;
   }, 600);
 }
 function renderHomeSuggest_() {
@@ -28095,7 +28093,8 @@ function closeRecurringModal() {
   editingRecurringItem = null;
 }
 
-document.getElementById("add-recurring-btn").addEventListener("click", () => openRecurringModal(null));
+let recurringNextPrefill_ = null;   // what the next tap on "+" fills in (Home's "Make it repeat monthly")
+document.getElementById("add-recurring-btn").addEventListener("click", () => openRecurringModal(null, recurringNextPrefill_ || undefined));
 document.getElementById("recurring-modal-close").addEventListener("click", closeRecurringModal);
 document.getElementById("recurring-modal-backdrop").addEventListener("click", (e) => {
   if (e.target.id === "recurring-modal-backdrop") closeRecurringModal();
@@ -33005,8 +33004,9 @@ function programmedGuideSteps_(ctx) {
   let name = "";
   ctx.capture = () => { const c = meta.categories.find((x) => x.id === selectedRecurringCategoryId); name = document.getElementById("recurring-description").value.trim() || (c ? c.name : ""); };
   const row = () => Array.from(document.querySelectorAll("#screen-recurring .recurring-row")).find((r) => name && r.textContent.includes(name)) || null;
+  const named = !!document.getElementById("recurring-description").value.trim();   // came filled in (Home's suggestion): its name is not asked
   return [
-    { target: "#recurring-description", text: () => tr("rt.prog.desc"), blurTap: true, visit: "#recurring-description", button: realNext_ },
+    { target: "#recurring-description", text: () => tr("rt.prog.desc"), blurTap: true, visit: "#recurring-description", button: realNext_, before: async () => !named },
     { key: "category", target: "#recurring-category-chips", text: () => tr("rt.prog.category"), until: () => !!selectedRecurringCategoryId, ok: () => ctx.saving() || !!selectedRecurringCategoryId, holdsUntil: "save" },
     realAmountStep_(ctx, "recurring-amount", () => tr("rt.prog.amount"), "spot.r.s3fix"),
     realCurrencyStep_("recurring-currency-chips"),
