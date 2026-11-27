@@ -51,3 +51,27 @@ test("the built-in Annual tag can be neither renamed nor deleted", () => {
   assert.match(JSON.stringify(post(rt, "deleteTag", { id: "system-annual" })), /built in/);
   assert.ok(rt.rows("Tags").some((t) => t.id === "system-annual"));
 });
+
+test("tapping a tag lists exactly its confirmed entries, all dates (listEntries tagId, owner 2026-11-27)", () => {
+  const { rt } = freshApp({ entries: 50 });
+  const tag = post(rt, "addTag", { name: "Depa 101" }).data;
+  const ids = tagTwo(rt, tag.id);
+  assert.ok(post(rt, "getMeta").data.capabilities.tagEntries);
+  const listed = post(rt, "listEntries", { tagId: tag.id }).data.map((e) => e.id).sort();
+  assert.deepEqual(listed, ids.slice().sort());
+  assert.deepEqual(post(rt, "listEntries", { tagId: "no-such-tag" }).data, []);
+  // and the app opens that list from the tag's row, with rename / delete in its ⋯ menu
+  const app = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "..", "docs", "app.js"), "utf8");
+  assert.match(app, /if \(tagEntriesOn_\(\)\) row\.addEventListener\("click", \(\) => openTagDrilldown_\(t\)\);/);
+  assert.match(app, /openDrilldownWithPayload_\(\{ tagId: t\.id \}, t\.name, tr\("tagsScreen\.allDates"\)\);/);
+});
+
+test("tag chips: at most three rows, the last chip 'More…' opens every tag; the same in the + form, Programmed items and Needs review (owner 2026-11-27)", () => {
+  const app = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "..", "docs", "app.js"), "utf8");
+  assert.match(app, /if \(rows\.length <= 3\) return;\n  chips\.forEach\(\(c, i\) => \{ if \(tops\[i\] > rows\[2\]\) c\.hidden = true; \}\);\n  more\.hidden = false;/);
+  for (const box of ["tags-list", "recurring-tags-list", "review-tags-chips"]) {
+    assert.match(app, new RegExp(`renderTagChips_\\(document\\.getElementById\\("${box}"\\), \\{`), box);
+  }
+  // measured against the box: a window that grows from the bottom moves while chips are hidden
+  assert.match(app, /const topIn = \(el\) => Math\.round\(el\.getBoundingClientRect\(\)\.top - box\.getBoundingClientRect\(\)\.top\);/);
+});

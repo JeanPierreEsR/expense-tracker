@@ -2278,20 +2278,96 @@ document.getElementById("to_payment_method").addEventListener("change", (e) => {
   document.getElementById("pm-type").dispatchEvent(new Event("change"));
 });
 
-function populateTags() {
-  const container = document.getElementById("tags-list");
-  container.innerHTML = "";
-  meta.tags.forEach((tag) => {
+// ---- Tag chips: at most three rows (owner, 2026-11-27) ----
+// The "+" form, a Programmed item and a Needs review item show their tags as chips: the picked ones first, then the most recently
+// used (from the phone's copy of the entries), then by name; at most three rows, the last chip "More…" opens the full-height screen
+// with every tag (the friends screen, as the Home filters do), with a search and "+ Add tag…" pinned at the bottom.
+let tagLastUsedCache_ = { src: null, n: -1, map: {} };
+function tagLastUsed_() {
+  const rows = searchIndex || [];
+  const c = tagLastUsedCache_;
+  if (c.src === searchIndex && c.n === rows.length) return c.map;
+  const map = {};
+  rows.forEach((e) => {
+    const when = String(e.date || "") + "|" + String(e.created_at || "");
+    (e.tagIds || []).forEach((id) => { if (!map[id] || when > map[id]) map[id] = when; });
+  });
+  tagLastUsedCache_ = { src: searchIndex, n: rows.length, map };
+  return map;
+}
+// opts: { selected: Set, onToggle(id), onPicked(ids) after the "More…" screen, onAdd() for its add button }
+function renderTagChips_(box, opts) {
+  box.innerHTML = "";
+  const tags = (meta && meta.tags) || [];
+  const used = tagLastUsed_();
+  const name = (a, b) => byName_({ label: a.name }, { label: b.name });
+  const order = tags.filter((t) => opts.selected.has(t.id)).sort(name)
+    .concat(tags.filter((t) => !opts.selected.has(t.id)).sort((a, b) => String(used[b.id] || "").localeCompare(String(used[a.id] || "")) || name(a, b)));
+  order.forEach((tag) => {
     const chip = document.createElement("div");
-    chip.className = "tag-chip" + (selectedTagIds.has(tag.id) ? " selected" : "");
+    chip.className = "tag-chip" + (opts.selected.has(tag.id) ? " selected" : "");
+    chip.setAttribute("role", "button");
+    chip.setAttribute("aria-pressed", String(opts.selected.has(tag.id)));
     chip.textContent = tag.name;
-    chip.addEventListener("click", () => {
-      if (tag.id === "system-annual") annualAutoTicked = false;   // the person's own choice from here on
-      if (selectedTagIds.has(tag.id)) selectedTagIds.delete(tag.id);
-      else selectedTagIds.add(tag.id);
+    chip.addEventListener("click", () => opts.onToggle(tag.id));
+    box.appendChild(chip);
+  });
+  const more = document.createElement("div");
+  more.className = "tag-chip more-chip";
+  more.setAttribute("role", "button");
+  more.textContent = tr("common.more");
+  more.hidden = true;
+  more.addEventListener("click", () => openFriendScreen_({
+    title: tr("tags.chooseTitle"), many: true, pickedFirst: true, selected: [...opts.selected],
+    items: tags.map((t) => ({ id: t.id, label: t.name })), noneKey: "friendPick.noneThing",
+    onAdd: opts.onAdd, addLabel: tr("common.addTag"),
+    onDone: (ids) => opts.onPicked(ids)
+  }));
+  box.appendChild(more);
+  box._tagFitW = -1;
+  fitTagRows_(box);
+  // A box drawn while its window or fold is closed has no width yet: it is fitted when it shows (and when the phone turns).
+  if (!box._tagFitObs && window.ResizeObserver) {
+    box._tagFitObs = new ResizeObserver(() => { if (box.offsetWidth !== box._tagFitW) fitTagRows_(box); });
+    box._tagFitObs.observe(box);
+  }
+}
+// Hides the chips after the third row and puts "More…" at the end of the third. Sizes are read in one go after the chips are shown
+// (one layout), then once per chip taken out to make room for "More…" (a few at most).
+function fitTagRows_(box) {
+  const more = box.querySelector(".more-chip");
+  if (!more) return;
+  const chips = [...box.querySelectorAll(".tag-chip:not(.more-chip)")];
+  chips.forEach((c) => { c.hidden = false; });
+  more.hidden = true;
+  box._tagFitW = box.offsetWidth;
+  if (!box._tagFitW) return;
+  // Measured against the box itself: a window that grows from the bottom moves as chips are hidden.
+  const topIn = (el) => Math.round(el.getBoundingClientRect().top - box.getBoundingClientRect().top);
+  const tops = chips.map(topIn);
+  const rows = [...new Set(tops)].sort((a, b) => a - b);
+  if (rows.length <= 3) return;
+  chips.forEach((c, i) => { if (tops[i] > rows[2]) c.hidden = true; });
+  more.hidden = false;
+  for (let i = tops.filter((t) => t <= rows[2]).length - 1; i >= 0 && topIn(more) > rows[2]; i--) chips[i].hidden = true;
+}
+
+function populateTags() {
+  renderTagChips_(document.getElementById("tags-list"), {
+    selected: selectedTagIds,
+    onToggle: (id) => {
+      if (id === "system-annual") annualAutoTicked = false;   // the person's own choice from here on
+      if (selectedTagIds.has(id)) selectedTagIds.delete(id);
+      else selectedTagIds.add(id);
       populateTags();
-    });
-    container.appendChild(chip);
+    },
+    onPicked: (ids) => {
+      if (selectedTagIds.has("system-annual") !== ids.includes("system-annual")) annualAutoTicked = false;
+      selectedTagIds.clear();
+      ids.forEach((id) => selectedTagIds.add(id));
+      populateTags();
+    },
+    onAdd: () => document.getElementById("add-tag-btn").click()
   });
   // The Annual tag changes what budgets count, and nothing else says so while tagging: a line appears while it is ticked.
   const annualHint = document.getElementById("annual-tag-hint");
@@ -6107,18 +6183,19 @@ function openReviewTagsSheet_(entry) {
   const body = document.getElementById("entries-bulk-body");
   document.getElementById("entries-bulk-title").textContent = tr("review.tagsTitle");
   const draw = () => {
-    const tags = (meta.tags || []).slice().sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    const tags = meta.tags || [];
     body.innerHTML = `
       <p class="hint">${escapeHtml(describeForConfirm_(entry.description || tr("review.noDescription"), formatAmount(entry.amount, entry.currency), entry.date))}</p>
       ${tags.length ? "" : `<p class="hint">${escapeHtml(tr("review.tagsNone"))}</p>`}
-      <div class="tags-list review-tags-list">${tags.map((t) => `<div class="tag-chip${picked.has(t.id) ? " selected" : ""}" role="button" tabindex="0" aria-pressed="${picked.has(t.id)}" data-tag="${escapeHtml(t.id)}">${escapeHtml(t.name)}</div>`).join("")}</div>
+      <div class="tags-list review-tags-list" id="review-tags-chips"></div>
       <div class="add-inline" id="review-tags-add" role="button" tabindex="0">${escapeHtml(tr("common.addTag"))}</div>
       <button type="button" class="primary" id="review-tags-save">${escapeHtml(tr("common.save"))}</button>`;
-    body.querySelectorAll(".tag-chip").forEach((chip) => chip.addEventListener("click", () => {
-      const id = chip.dataset.tag;
-      if (picked.has(id)) picked.delete(id); else picked.add(id);
-      draw();
-    }));
+    renderTagChips_(document.getElementById("review-tags-chips"), {
+      selected: picked,
+      onToggle: (id) => { if (picked.has(id)) picked.delete(id); else picked.add(id); draw(); },
+      onPicked: (ids) => { picked.clear(); ids.forEach((id) => picked.add(id)); draw(); },
+      onAdd: () => document.getElementById("review-tags-add").click()
+    });
     document.getElementById("review-tags-add").addEventListener("click", async () => {
       const name = await askName_(tr("prompt.tagName"));
       if (!name || !name.trim()) return;
@@ -14368,6 +14445,8 @@ function closeDrilldown() {
   document.getElementById("drilldown-menu").hidden = true;
   collapseDrilldownExpand_();
   drilldownBudget = null;
+  drilldownTag_ = null;
+  document.getElementById("drilldown-menu-btn").setAttribute("aria-label", tr("drill.budgetOptions"));
   drilldownProjection = null;
   drilldownProjectionDetail = null;
 }
@@ -14589,9 +14668,11 @@ document.getElementById("drilldown-menu-btn").addEventListener("click", (e) => {
   const del = document.getElementById("drilldown-menu-delete");
   const hist = budgetHistoryOn_();
   // A line icon, never an emoji, in a menu (owner, 2026-11-14): a stop sign to end, a trash can to delete.
-  document.getElementById("drilldown-menu-delete-label").textContent = tr(hist ? "drill.endBudget" : "drill.deleteBudget");
-  document.getElementById("drilldown-menu-delete-ico").innerHTML = lineIcon_(hist ? "stop" : "trash");
-  del.hidden = !!(hist && drilldownBudget && drilldownBudget.ended);
+  const tag = !drilldownBudget && drilldownTag_;
+  document.querySelector("#drilldown-menu-edit [data-i18n]").textContent = tr(tag ? "tagsScreen.rename" : "drill.modifyBudget");
+  document.getElementById("drilldown-menu-delete-label").textContent = tr(tag ? "tagsScreen.delete" : hist ? "drill.endBudget" : "drill.deleteBudget");
+  document.getElementById("drilldown-menu-delete-ico").innerHTML = lineIcon_(!tag && hist ? "stop" : "trash");
+  del.hidden = !tag && !!(hist && drilldownBudget && drilldownBudget.ended);
   menu.hidden = !menu.hidden;
 });
 document.addEventListener("click", (e) => {
@@ -14604,11 +14685,13 @@ document.addEventListener("click", (e) => {
 document.getElementById("drilldown-menu-edit").addEventListener("click", () => {
   document.getElementById("drilldown-menu").hidden = true;
   if (drilldownBudget) openBudgetModal(drilldownBudget);
+  else if (drilldownTag_) openTagModal_(drilldownTag_);
 });
 
 document.getElementById("drilldown-menu-delete").addEventListener("click", () => {
   document.getElementById("drilldown-menu").hidden = true;
   if (drilldownBudget) removeBudget_(drilldownBudget, false, drilldownBudget.name);
+  else if (drilldownTag_) askDeleteTag_(drilldownTag_);
 });
 
 // ---- Budgets ----
@@ -22192,6 +22275,7 @@ let tagCounts_ = null;   // tag id -> entries carrying it; null until the server
 let tagItemCounts_ = {};   // tag id -> Programmed items carrying it (2026-11-16)
 let tagModalTag_ = null;
 const tagsManageOn_ = () => !!(meta && meta.capabilities && meta.capabilities.tagsManage);
+const tagEntriesOn_ = () => !!(meta && meta.capabilities && meta.capabilities.tagEntries);
 const tagsSorted_ = () => ((meta && meta.tags) || []).slice().sort((a, b) =>
   (a.id === "system-annual" ? -1 : b.id === "system-annual" ? 1 : String(a.name).localeCompare(String(b.name))));
 const tagCountText_ = (id) => (tagCounts_ ? tr("categories.entryCount", { n: tagCounts_[id] || 0 }) : "");
@@ -22201,7 +22285,7 @@ function renderTagsList_() {
   const tags = tagsSorted_();
   const manage = tagsManageOn_();
   document.getElementById("tags-fold-count").textContent = tags.length ? tr("tagsScreen.count", { n: tags.length }) : tr("tagsScreen.none");
-  document.querySelector("#tags-fold-body > .hint").textContent = tr(manage ? "tagsScreen.hint" : "tagsScreen.hintOld");
+  document.querySelector("#tags-fold-body > .hint").textContent = tr(tagEntriesOn_() ? "tagsScreen.hintList" : manage ? "tagsScreen.hint" : "tagsScreen.hintOld");
   list.innerHTML = "";
   tags.forEach((t) => {
     const builtIn = t.id === "system-annual";
@@ -22210,7 +22294,10 @@ function renderTagsList_() {
     delKey_(row, "tag:" + t.id);
     const sub = [tagCountText_(t.id), builtIn ? tr("tagsScreen.builtIn") : ""].filter(Boolean).join(" · ");
     row.innerHTML = `<div><div class="recurring-row-name">${escapeHtml(t.name)}</div><div class="recurring-row-sub">${escapeHtml(sub)}</div></div>`;
-    if (manage && !builtIn) row.addEventListener("click", () => openTagModal_(t));
+    // Tapping a tag lists its entries; renaming and deleting are in that list's ⋯ menu (owner, 2026-11-27). An older backend cannot
+    // list one tag's entries: there the tap opens the rename window as before.
+    if (tagEntriesOn_()) row.addEventListener("click", () => openTagDrilldown_(t));
+    else if (manage && !builtIn) row.addEventListener("click", () => openTagModal_(t));
     else row.style.cursor = "default";
     list.appendChild(row);
   });
@@ -22228,6 +22315,7 @@ async function refreshTagsAfterChange_() {
   tagCounts_ = null;
   await loadMeta();
   renderTagsList_();
+  if (drilldownTag_ && currentDrilldown) currentDrilldown.refetch();   // its list: the new name, or closed once the tag is gone
 }
 function openTagModal_(t) {
   tagModalTag_ = t;
@@ -22236,7 +22324,22 @@ function openTagModal_(t) {
   document.getElementById("tag-modal-name").value = t.name;
   document.getElementById("tag-modal-error").textContent = "";
   document.getElementById("tag-modal-count").textContent = tagCountText_(t.id);
+  bringModalToFront_(backdrop);   // above the tag's list when opened from its ⋯ menu
   backdrop.hidden = false;
+}
+// A tag's entries, all dates, newest first, in the shared drill-down; its ⋯ menu renames or deletes the tag (not the built-in Annual).
+let drilldownTag_ = null;
+function openTagDrilldown_(t) {
+  currentDrilldown = { refetch: () => { const fresh = ((meta && meta.tags) || []).find((x) => x.id === t.id); if (fresh) openTagDrilldown_(fresh); else closeDrilldown(); } };
+  drilldownTag_ = t;
+  drilldownBudget = null;
+  drilldownProjection = null;
+  drilldownProjectionDetail = null;
+  ["drilldown-period-prev", "drilldown-period-next", "drilldown-menu", "drilldown-categories", "drilldown-chart", "drilldown-projection-row",
+    "drilldown-projection-actual-row", "drilldown-projection-annual-note", "drilldown-projection-total-row"].forEach((id) => { document.getElementById(id).hidden = true; });
+  document.getElementById("drilldown-menu-btn").hidden = !(tagsManageOn_() && t.id !== "system-annual");
+  document.getElementById("drilldown-menu-btn").setAttribute("aria-label", tr("tagsScreen.options"));
+  openDrilldownWithPayload_({ tagId: t.id }, t.name, tr("tagsScreen.allDates"));
 }
 function closeTagModal_() { document.getElementById("tag-modal-backdrop").hidden = true; tagModalTag_ = null; }
 document.getElementById("tag-modal-close").addEventListener("click", closeTagModal_);
@@ -22257,9 +22360,8 @@ document.getElementById("tag-modal-save").addEventListener("click", () => {
   closeTagModal_();
   saveBehindScreen_(() => callApi("renameTag", { id: t.id, name }), refreshTagsAfterChange_);
 });
-document.getElementById("tag-modal-delete").addEventListener("click", async () => {
-  const t = tagModalTag_;
-  if (!t) return;
+document.getElementById("tag-modal-delete").addEventListener("click", () => { if (tagModalTag_) askDeleteTag_(tagModalTag_); });
+async function askDeleteTag_(t) {
   const n = tagCounts_ ? tagCounts_[t.id] || 0 : null;
   const items = tagItemCounts_[t.id] || 0;
   const ask = (n === 0 ? tr("tagsScreen.deleteAskUnused", { name: t.name }) : tr("tagsScreen.deleteAsk", { name: t.name, n: n == null ? "?" : n }))
@@ -22271,7 +22373,7 @@ document.getElementById("tag-modal-delete").addEventListener("click", async () =
     unmarkDeleting_("tag:" + t.id);
     await refreshTagsAfterChange_();
   });
-});
+}
 document.getElementById("tags-add-btn").addEventListener("click", async () => {
   const name = await askName_(tr("prompt.tagName"));
   if (!name) return;
@@ -26510,9 +26612,31 @@ function syncVoucherField_() {
   field.hidden = !(companyCopyOn_() && (selectedType === "expense" || selectedType === "income"));
   const t = document.getElementById("voucher-type").value;
   document.getElementById("voucher-detail").hidden = field.hidden || !t || t === "none";
+  syncVoucherCash_();
+}
+// "Cash" is a choice only when the entry's account is a cash account (owner, 2026-11-27: money from a bank account was never paid in
+// cash). The option is taken out of the list, not hidden: an iPhone shows hidden options anyway. Same test as the package's guess
+// (AccountantPackage.gs pkgPayMethod_): the built-in Cash account or any account of type cash.
+var voucherCashOpt_ = null;   // (var: syncVoucherField_ may run before this line)
+function voucherCashOption_() { return voucherCashOpt_ || (voucherCashOpt_ = document.querySelector('#voucher-pay option[value="cash"]')); }
+function voucherCashAllowed_() {
+  const id = document.getElementById("payment_method").value;
+  const pm = ((meta && meta.paymentMethods) || []).find((p) => String(p.id) === String(id));
+  return !!pm && (isBasicCashPm_(pm) || pm.type === "cash");
+}
+function syncVoucherCash_() {
+  const sel = document.getElementById("voucher-pay");
+  const ok = voucherCashAllowed_();
+  if (ok && !voucherCashOption_().parentNode) sel.insertBefore(voucherCashOption_(), sel.querySelector('option[value="wallet"]'));
+  if (!ok && voucherCashOption_().parentNode) {
+    if (sel.value === "cash") sel.value = "";
+    voucherCashOption_().remove();
+  }
 }
 function setVoucherState_(entry) {
-  document.getElementById("voucher-pay").value = (entry && entry.pay_method) || "";
+  const sel = document.getElementById("voucher-pay");
+  if (!voucherCashOption_().parentNode) sel.insertBefore(voucherCashOption_(), sel.querySelector('option[value="wallet"]'));   // syncVoucherField_ below decides
+  sel.value = (entry && entry.pay_method) || "";
   document.getElementById("voucher-type").value = (entry && entry.receipt_type) || "";
   document.getElementById("voucher-no").value = (entry && entry.receipt_no) || "";
   document.getElementById("voucher-date").value = (entry && String(entry.receipt_date || "").slice(0, 10)) || "";
@@ -26523,10 +26647,14 @@ function voucherFieldsToSend_() {
   if (document.getElementById("voucher-field").hidden) return {};
   const type = document.getElementById("voucher-type").value;
   const keep = type && type !== "none";
-  return { pay_method: document.getElementById("voucher-pay").value, receipt_type: type,
+  const pay = document.getElementById("voucher-pay").value;
+  return { pay_method: pay === "cash" && !voucherCashAllowed_() ? "" : pay, receipt_type: type,
     receipt_no: keep ? document.getElementById("voucher-no").value.trim() : "", receipt_date: keep ? document.getElementById("voucher-date").value : "" };
 }
 document.getElementById("voucher-type").addEventListener("change", syncVoucherField_);
+document.getElementById("payment_method").addEventListener("change", syncVoucherCash_);
+// The account can also be filled in by the app itself (no change event): the list is checked again as it is opened.
+["pointerdown", "focus"].forEach((ev) => document.getElementById("voucher-pay").addEventListener(ev, syncVoucherCash_));
 
 // ---- "Pays expected payment" (an income on a project) ----
 // FIFO by default: a NEW income on a project pre-selects the oldest-due open expected payment of that project in the same
@@ -27785,18 +27913,20 @@ function populateRecurringTags_() {
   const field = document.getElementById("recurring-tags-field");
   field.hidden = !programmedTagsOn_();
   if (field.hidden) return;
-  const box = document.getElementById("recurring-tags-list");
-  box.innerHTML = "";
-  meta.tags.forEach((tag) => {
-    const chip = document.createElement("div");
-    chip.className = "tag-chip" + (recurringTagIds_.has(tag.id) ? " selected" : "");
-    chip.textContent = tag.name;
-    chip.addEventListener("click", () => {
-      if (tag.id === "system-annual") recurringAnnualAuto_ = false;   // the person's own choice from here on
-      if (recurringTagIds_.has(tag.id)) recurringTagIds_.delete(tag.id); else recurringTagIds_.add(tag.id);
+  renderTagChips_(document.getElementById("recurring-tags-list"), {
+    selected: recurringTagIds_,
+    onToggle: (id) => {
+      if (id === "system-annual") recurringAnnualAuto_ = false;   // the person's own choice from here on
+      if (recurringTagIds_.has(id)) recurringTagIds_.delete(id); else recurringTagIds_.add(id);
       populateRecurringTags_();
-    });
-    box.appendChild(chip);
+    },
+    onPicked: (ids) => {
+      if (recurringTagIds_.has("system-annual") !== ids.includes("system-annual")) recurringAnnualAuto_ = false;
+      recurringTagIds_.clear();
+      ids.forEach((id) => recurringTagIds_.add(id));
+      populateRecurringTags_();
+    },
+    onAdd: () => document.getElementById("recurring-add-tag-btn").click()
   });
   const hint = document.getElementById("recurring-annual-hint");
   hint.hidden = !recurringTagIds_.has("system-annual");

@@ -1648,6 +1648,12 @@ function listEntries(payload) {
   if (payload && payload.tripId) {
     entries = entries.filter(function (e) { return e.trip_id === payload.tripId; });
   }
+  // One tag's entries (More → Categories & tags: tapping a tag, owner 2026-11-27).
+  if (payload && payload.tagId) {
+    var withTag = {};
+    getAllRows('Entry Tags').forEach(function (et) { if (String(et.tag_id) === String(payload.tagId)) withTag[et.entry_id] = true; });
+    entries = entries.filter(function (e) { return !!withTag[e.id]; });
+  }
   // Business pack: one project's or one company's entries (a company includes its projects'). Ignored while off.
   if (payload && payload.projectId && businessOn_()) {
     // ...and the entries split between projects that give it a part (shown whole; ProjectSplits.gs)
