@@ -201,6 +201,8 @@ let expectedSeq_ = 0;
 let igvTouched_ = false;   // the IGV amount was typed by hand, so a changed amount no longer recalculates it
 let selectedTagIds = new Set();
 let selectedCategoryId = null;
+let partsState_ = null;    // split by category: see § Split by category
+let partsOrigin_ = null;
 let editingEntryId = null;
 // True while the entry form is open as a pop-up on top of a drill-down
 // sheet (Overview) rather than inline on the Entries screen — changes
@@ -2090,6 +2092,7 @@ function showDetailForm(category) {
 // the untouched, still-null selectedCategoryId no matter what was picked
 // in it, always failing "Pick a category" even after picking one.
 function getCategoryId() {
+  if (partsActive_()) return partsState_.rows[0].category_id;   // split by category: the first part's
   // A transfer's category is always the select's value (it is hidden behind
   // the "Type of transfer" choice, but still holds "Between Accounts").
   if (selectedType === "transfer") return document.getElementById("category").value;
@@ -2949,9 +2952,11 @@ function toggleSplitFieldVisibility() {
   if (!show) document.getElementById("entry-trip").value = "";
   populateBusinessOptions_();   // an expense or an income may belong to a company / project
   updateRepeatField_();
+  syncPartsField_();   // split by category: shown for an expense; while on, the whole-purchase split steps aside
 }
 
 function resetSplitState() {
+  resetParts_();
   receiptFormText_ = "";
   receiptFormFile_ = null;
   billState = null;
@@ -3453,6 +3458,321 @@ function validateSplitIfEnabled() {
   }
   return splits;
 }
+
+// ---- Split by category (owner's plan, 2026-11-27; PurchaseParts.gs) ----
+// One purchase in several categories: the Amount is the whole purchase, each part has its category and amount, and the LAST part
+// takes what is left, so the parts always add up to the purchase. Each part may be shared with friends on its own. Saved as linked
+// entries (the first part is the entry the form edits; the others go as `parts` in the same save). Expenses only; not for a
+// Needs review item, a Programmed item, a listed price in another currency, or an entry other records hang on.
+// (partsState_ / partsOrigin_ are declared at the top of the file)
+// partsState_: null = one category; { rows: [{ id, category_id, amount, friends: [], mode, custom: {} }] }; rows[0].id is the entry's own
+// partsOrigin_: the parts the edited purchase had when it opened (null = a plain entry)
+function purchasePartsOn_() { return !!(meta && meta.capabilities && meta.capabilities.purchaseParts); }
+function partsActive_() { return !!partsState_ && selectedType === "expense"; }
+function partsAllowedHere_() {
+  if (!purchasePartsOn_() || selectedType !== "expense" || confirmingPendingId) return false;
+  if (editingEntryId && (editingLoanMovement_ || editingRepayment_ || editingRepaymentExtra_ || editingForgiveness_ || editingExchangeLeg_)) return false;
+  const r = editingEntryId ? editingRefundEntry_ : null;
+  if (r && (r.refund_of || Number(r.refunded || 0) > 0.004 || Number(r.paid_amount) > 0 || r.charge_pending)) return false;
+  if (businessOn() && companyCopyOn_()) return false;   // a company copy splits between projects instead (ProjectSplits.gs)
+  return true;
+}
+function resetParts_() {
+  partsState_ = null;
+  partsOrigin_ = null;
+  const field = document.getElementById("parts-field");
+  if (field) { document.getElementById("parts-detail").hidden = true; document.getElementById("parts-open-btn").hidden = false; }
+}
+// Shows or hides the whole field, and while parts are on, the single category and the whole-purchase split step aside.
+function syncPartsField_() {
+  const field = document.getElementById("parts-field");
+  if (!field) return;
+  const allowed = partsAllowedHere_();
+  if (!allowed && partsState_) partsOff_();
+  field.hidden = !allowed;
+  const on = partsActive_();
+  document.getElementById("parts-open-btn").hidden = on;
+  document.getElementById("parts-detail").hidden = !on;
+  if (on) {
+    document.getElementById("selected-category-banner").hidden = true;
+    document.getElementById("category-select-field").hidden = true;
+    document.getElementById("split-field").hidden = true;
+  }
+}
+function partAmountCents_(text) {
+  const n = parseFloat(sanitizeAmountInputValue(String(text == null ? "" : text)));
+  return isNaN(n) ? null : Math.round(n * 100);
+}
+function partsTotalCents_() { return partAmountCents_(document.getElementById("amount").value); }
+// What each row comes to: the last one takes what is left of the Amount (null while the Amount or a part is not typed yet).
+function partsAmounts_() {
+  const rows = partsState_ ? partsState_.rows : [];
+  const total = partsTotalCents_();
+  let used = 0, typed = true;
+  const out = rows.map((r, i) => {
+    if (i === rows.length - 1) return null;
+    const c = partAmountCents_(r.amount);
+    if (c === null) typed = false; else used += c;
+    return c;
+  });
+  if (rows.length) out[rows.length - 1] = total === null || !typed ? null : total - used;
+  return out;
+}
+// A part's friends' shares: Equal = the part divided between the person and the friends (an odd cent stays with the person, as in
+// the whole-purchase split); Custom = typed amounts, an empty box shares what is left equally with the person.
+function partSplits_(row, cents) {
+  if (!row.friends.length || !(cents > 0)) return [];
+  const amount = cents / 100;
+  if (row.mode !== "custom") {
+    const { shareEach } = computeEqualShares(amount, row.friends);
+    return row.friends.map((f) => ({ friend_id: f, amount: shareEach }));
+  }
+  const filled = row.friends.filter((f) => partAmountCents_(row.custom[f]) !== null);
+  const open = row.friends.filter((f) => partAmountCents_(row.custom[f]) === null);
+  const fixed = filled.reduce((s, f) => s + partAmountCents_(row.custom[f]), 0);
+  const rest = Math.max(cents - fixed, 0);
+  const each = open.length ? Math.floor(rest / (open.length + 1)) : 0;
+  return row.friends.map((f) => ({ friend_id: f, amount: (filled.includes(f) ? partAmountCents_(row.custom[f]) : each) / 100 })).filter((s) => s.amount > 0);
+}
+function friendNameOf_(id) { const f = (meta.friends || []).find((x) => x.id === id); return f ? f.name : ""; }
+function partShareLabel_(row, cents) {
+  if (!row.friends.length) return tr("parts.sharedNobody");
+  const sp = partSplits_(row, cents);
+  const theirs = sp.reduce((s, x) => s + Math.round(x.amount * 100), 0);
+  const cur = document.getElementById("currency").value;
+  return tr("parts.sharedWith", { names: row.friends.map(friendNameOf_).filter(Boolean).join(", "),
+    mine: cents > 0 ? formatAmount((cents - theirs) / 100, cur) : "…" });
+}
+function partCategoryOptionsHtml_(selected) {
+  const src = document.getElementById("category");
+  const opts = Array.from(src.options).filter((o) => o.value && !o.value.startsWith("__"));
+  return `<option value="">${escapeHtml(tr("parts.pickCategoryOption"))}</option>` +
+    opts.map((o) => `<option value="${escapeHtml(o.value)}"${o.value === selected ? " selected" : ""}>${escapeHtml(o.textContent)}</option>`).join("");
+}
+function renderParts_() {
+  const list = document.getElementById("parts-list");
+  if (!list || !partsState_) return;
+  // A box being typed in keeps its value and focus (the list is drawn again after every change).
+  const focused = document.activeElement && list.contains(document.activeElement) ? document.activeElement.dataset.partFocus : "";
+  const amounts = partsAmounts_();
+  const rows = partsState_.rows;
+  list.innerHTML = "";
+  rows.forEach((r, i) => {
+    const last = i === rows.length - 1;
+    const box = document.createElement("div");
+    box.className = "part-row";
+    box.innerHTML = `
+      <div class="part-line">
+        <select class="part-cat" data-part-focus="c${i}" aria-label="${escapeHtml(tr("parts.categoryN", { n: i + 1 }))}">${partCategoryOptionsHtml_(r.category_id)}</select>
+        <input type="text" inputmode="decimal" class="part-amt" data-part-focus="a${i}" placeholder="0.00" aria-label="${escapeHtml(tr("parts.amountN", { n: i + 1 }))}"${last ? " readonly tabindex=\"-1\"" : ""}>
+        ${rows.length > 2 ? `<button type="button" class="part-del" aria-label="${escapeHtml(tr("parts.removeN", { n: i + 1 }))}">✕</button>` : ""}
+      </div>
+      <button type="button" class="add-inline part-share"></button>`;
+    const amt = box.querySelector(".part-amt");
+    amt.value = last ? (amounts[i] === null ? "" : (amounts[i] / 100).toFixed(2)) : r.amount;
+    if (last) amt.classList.toggle("part-amt-bad", amounts[i] !== null && amounts[i] <= 0);
+    box.querySelector(".part-cat").addEventListener("change", (e) => { r.category_id = e.target.value; });
+    if (!last) amt.addEventListener("input", (e) => { r.amount = e.target.value; renderPartsLeft_(); });
+    const del = box.querySelector(".part-del");
+    if (del) del.addEventListener("click", () => { rows.splice(i, 1); renderParts_(); });
+    const share = box.querySelector(".part-share");
+    share.textContent = partShareLabel_(r, amounts[i]);
+    share.addEventListener("click", () => openPartShare_(i));
+    list.appendChild(box);
+  });
+  if (focused) { const el = list.querySelector(`[data-part-focus="${focused}"]`); if (el) el.focus(); }
+  renderPartsLeft_();
+}
+// Only the last part's amount and the share lines change while a part's amount is typed (the box itself is not drawn again).
+function renderPartsLeft_() {
+  const list = document.getElementById("parts-list");
+  if (!list || !partsState_) return;
+  const amounts = partsAmounts_();
+  const rows = partsState_.rows;
+  const boxes = list.querySelectorAll(".part-row");
+  boxes.forEach((box, i) => {
+    const share = box.querySelector(".part-share");
+    if (share) share.textContent = partShareLabel_(rows[i], amounts[i]);
+    if (i === rows.length - 1) {
+      const amt = box.querySelector(".part-amt");
+      amt.value = amounts[i] === null ? "" : (amounts[i] / 100).toFixed(2);
+      amt.classList.toggle("part-amt-bad", amounts[i] !== null && amounts[i] <= 0);
+    }
+  });
+  const left = document.getElementById("parts-left");
+  const last = amounts[amounts.length - 1];
+  left.textContent = last === null ? tr("parts.lastTakesRest") : last <= 0 ? tr("parts.tooMuch") : tr("parts.lastGets", { amount: formatAmount(last / 100, document.getElementById("currency").value) });
+  left.classList.toggle("error-text", last !== null && last <= 0);
+}
+function newPartRow_(categoryId) { return { id: newClientEntryId_(), category_id: categoryId || "", amount: "", friends: [], mode: "equal", custom: {} }; }
+function partsOn_(rows) {
+  partsState_ = { rows };
+  if (document.getElementById("split-toggle").checked) {   // a whole-purchase split started before goes to the first part
+    rows[0].friends = Array.from(splitFriendIds);
+  }
+  document.getElementById("split-toggle").checked = false;
+  document.getElementById("split-detail").hidden = true;
+  syncPartsField_();
+  renderParts_();
+}
+// Back to one category: the first part's category stays, and the Amount stays the whole purchase.
+function partsOff_() {
+  const first = partsState_ && partsState_.rows[0];
+  partsState_ = null;
+  document.getElementById("parts-detail").hidden = true;
+  document.getElementById("parts-open-btn").hidden = false;
+  const cat = first && first.category_id ? findCategory(first.category_id) : null;
+  if (cat) {   // the tile banner with that category, as when it was picked
+    selectedCategoryId = cat.id;
+    document.getElementById("selected-category-icon").textContent = cat.icon || "•";
+    document.getElementById("selected-category-icon").style.background = cat.color || "#eee";
+    document.getElementById("selected-category-name").textContent = cat.name;
+    document.getElementById("selected-category-banner").hidden = false;
+    document.getElementById("category-select-field").hidden = true;
+  } else {
+    document.getElementById("category-select-field").hidden = false;
+  }
+  toggleSplitFieldVisibility();
+}
+document.getElementById("parts-open-btn").addEventListener("click", () => {
+  const rows = [newPartRow_(getCategoryId() || ""), newPartRow_("")];
+  rows[0].id = editingEntryId || "";   // the entry itself (a new one gets its id when it is saved)
+  partsOn_(rows);
+  const second = document.querySelector("#parts-list .part-row .part-amt");
+  if (second) second.focus();
+});
+document.getElementById("parts-add-btn").addEventListener("click", () => {
+  if (!partsState_) return;
+  partsState_.rows.push(newPartRow_(""));
+  renderParts_();
+});
+document.getElementById("parts-remove-btn").addEventListener("click", () => partsOff_());
+document.getElementById("amount").addEventListener("input", () => { if (partsActive_()) renderPartsLeft_(); });
+
+// The parts to save, checked: [{ id, category_id, amount, splits }], the first being the entry itself. Throws in plain words.
+function partsForSave_() {
+  if (!partsActive_()) return null;
+  const rows = partsState_.rows;
+  const amounts = partsAmounts_();
+  if (partsTotalCents_() === null) throw new Error(tr("error.validAmount"));
+  rows.forEach((r, i) => {
+    if (!r.category_id) throw new Error(tr("parts.errCategory", { n: i + 1 }));
+    if (amounts[i] === null || amounts[i] <= 0) throw new Error(i === rows.length - 1 ? tr("parts.tooMuch") : tr("parts.errAmount", { n: i + 1 }));
+  });
+  const paidBy = document.getElementById("paid_by").value;
+  return rows.map((r, i) => {
+    const splits = partSplits_(r, amounts[i]);
+    if (r.friends.length && r.mode === "custom") {
+      const theirs = splits.reduce((s, x) => s + Math.round(x.amount * 100), 0);
+      if (theirs > amounts[i]) throw new Error(tr("parts.errShareOver", { n: i + 1 }));
+      if (theirs <= 0 && !(paidBy && paidBy !== "me")) throw new Error(tr("split.errNoAmount"));
+    }
+    return { id: r.id || "", category_id: r.category_id, amount: amounts[i] / 100, splits };
+  });
+}
+
+// An existing purchase opens with all its parts (from the list already on the phone when it holds them all, else from the server).
+async function purchasePartsFor_(entry) {
+  const pid = String(entry.purchase_id || "");
+  const have = applyQueuedEditOverlay_(lastRenderedEntries_ || []).filter((e) => String(e.purchase_id || "") === pid);
+  if (have.length >= 2 && have.length === Number(entry.purchase_count || have.length) && have.every((e) => Array.isArray(e.splits))) {
+    return have.slice().sort((a, b) => (a.id === pid ? -1 : 0) - (b.id === pid ? -1 : 0))
+      .map((e) => ({ id: e.id, category_id: e.category_id || "", amount: Number(e.amount), splits: e.splits }));
+  }
+  const out = await callApi("getPurchaseParts", { id: entry.id });
+  return (out && out.parts) || [];
+}
+function partsFromSaved_(parts) {
+  return parts.map((p) => {
+    const friends = (p.splits || []).map((s) => s.friend_id);
+    const { shareEach } = computeEqualShares(Number(p.amount), friends);
+    const equal = (p.splits || []).every((s) => Math.abs(Number(s.amount) - shareEach) < 0.005);
+    const custom = {};
+    if (!equal) (p.splits || []).forEach((s) => { custom[s.friend_id] = String(s.amount); });
+    return { id: p.id, category_id: p.category_id, amount: String(p.amount), friends, mode: equal ? "equal" : "custom", custom };
+  });
+}
+
+// ---- One part shared with friends (a window over the form) ----
+let partShareIdx_ = -1;
+function openPartShare_(i) {
+  if (!partsState_ || !partsState_.rows[i]) return;
+  partShareIdx_ = i;
+  const r = partsState_.rows[i];
+  r._before = { friends: r.friends.slice(), mode: r.mode, custom: Object.assign({}, r.custom) };
+  const cat = findCategory(r.category_id);
+  document.getElementById("part-share-title").textContent = tr("parts.shareTitle", { category: cat ? cat.name : tr("parts.partN", { n: i + 1 }) });
+  renderPartShare_();
+  const backdrop = document.getElementById("part-share-backdrop");
+  bringModalToFront_(backdrop);
+  backdrop.hidden = false;
+}
+function partShareItems_() {
+  return splitFriendsList_().filter((f) => !isGroupFriend_(f)).map((f) => ({ id: f.id, label: friendLabel_(f) }));
+}
+function renderPartShare_() {
+  const r = partsState_ && partsState_.rows[partShareIdx_];
+  if (!r) return;
+  const cents = partsAmounts_()[partShareIdx_];
+  const cur = document.getElementById("currency").value;
+  const selected = new Set(r.friends);
+  const toggle = (id) => {
+    r.friends = selected.has(id) ? r.friends.filter((x) => x !== id) : r.friends.concat(id);
+    renderPartShare_();
+  };
+  renderFriendQuickChips_({
+    box: document.getElementById("part-share-chips"), items: partShareItems_(), selected, onToggle: toggle,
+    onMore: () => openFriendScreen_({ many: true, items: partShareItems_(), selected: r.friends, pickedFirst: true,
+      onDone: (ids) => { r.friends = ids.slice(); renderPartShare_(); } })
+  });
+  document.querySelectorAll("#part-share-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.mode === r.mode));
+  document.getElementById("part-share-tabs").hidden = !r.friends.length;
+  const rowsBox = document.getElementById("part-share-rows");
+  rowsBox.innerHTML = "";
+  const splits = partSplits_(r, cents);
+  r.friends.forEach((f) => {
+    const line = document.createElement("div");
+    line.className = "part-share-row";
+    const share = splits.find((s) => s.friend_id === f);
+    if (r.mode === "custom") {
+      line.innerHTML = `<span>${escapeHtml(friendNameOf_(f))}</span><input type="text" inputmode="decimal" placeholder="${escapeHtml(share ? share.amount.toFixed(2) : "0.00")}" aria-label="${escapeHtml(friendNameOf_(f))}">`;
+      const input = line.querySelector("input");
+      input.value = r.custom[f] || "";
+      input.addEventListener("input", (e) => { r.custom[f] = e.target.value; renderPartShareSum_(); });
+    } else {
+      line.innerHTML = `<span>${escapeHtml(friendNameOf_(f))}</span><span class="part-share-amt">${escapeHtml(share ? formatAmount(share.amount, cur) : "…")}</span>`;
+    }
+    rowsBox.appendChild(line);
+  });
+  renderPartShareSum_();
+}
+function renderPartShareSum_() {
+  const r = partsState_ && partsState_.rows[partShareIdx_];
+  if (!r) return;
+  const cents = partsAmounts_()[partShareIdx_];
+  const cur = document.getElementById("currency").value;
+  const sum = document.getElementById("part-share-sum");
+  if (!r.friends.length) { sum.textContent = tr("parts.shareNobodyHint"); return; }
+  if (!(cents > 0)) { sum.textContent = tr("parts.shareNeedAmount"); return; }
+  const theirs = partSplits_(r, cents).reduce((s, x) => s + Math.round(x.amount * 100), 0);
+  sum.textContent = theirs > cents ? tr("parts.errShareOver", { n: partShareIdx_ + 1 }) : tr("parts.shareMine", { amount: formatAmount((cents - theirs) / 100, cur), total: formatAmount(cents / 100, cur) });
+}
+document.querySelectorAll("#part-share-tabs .type-tab").forEach((t) => t.addEventListener("click", () => {
+  const r = partsState_ && partsState_.rows[partShareIdx_];
+  if (!r) return;
+  r.mode = t.dataset.mode;
+  renderPartShare_();
+}));
+function closePartShare_(keep) {
+  const r = partsState_ && partsState_.rows[partShareIdx_];
+  if (r && !keep && r._before) Object.assign(r, r._before);
+  if (r) delete r._before;
+  document.getElementById("part-share-backdrop").hidden = true;
+  partShareIdx_ = -1;
+  renderParts_();
+}
+document.getElementById("part-share-close").addEventListener("click", () => closePartShare_(false));
+document.getElementById("part-share-done").addEventListener("click", () => closePartShare_(true));
 
 document.getElementById("split-toggle").addEventListener("change", (e) => {
   document.getElementById("split-detail").hidden = !e.target.checked;
@@ -4289,9 +4609,12 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         !await askConfirmApp_(tr("entry.confirmNoAccount"), tr("confirmBtn.yes"), { plain: true })) {
       throw new Error(tr("error.pickPaymentMethod"));
     }
-    const splits = validateSplitIfEnabled();
-    const groupSize = splitGroupSizeToSave_(splits);
-    const charge = chargeForSave_(amount, currency, splits, selectedType, paidByForCharge_());
+    // Split by category: [{ id, category_id, amount, splits }], the first part being this entry itself (null = one category).
+    const parts = !isRepayment ? partsForSave_() : null;
+    const splits = parts ? parts[0].splits : validateSplitIfEnabled();
+    const groupSize = parts ? null : splitGroupSizeToSave_(splits);
+    const charge = chargeForSave_(parts ? parts[0].amount : amount, currency, splits, selectedType, paidByForCharge_());
+    if (parts && (Number(charge.fields.paid_amount) > 0 || charge.fields.charge_pending === "1")) throw new Error(tr("parts.notWithCharge"));
     if (pendingTagAdd_) await pendingTagAdd_;   // a tag still being made gets its real id first
     const tagIds = Array.from(selectedTagIds).filter((id) => !String(id).startsWith("tmp-tag-"));
     const tripId = selectedType === "expense" ? document.getElementById("entry-trip").value : "";
@@ -4347,6 +4670,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (canProgram && !categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
     const repeat = repeatChoice_();
     if (repeat && !categoryId) throw new Error(tr("error.pickCategory"));       // so does one made by "Repeat…"
+    if (parts && isFutureDate) throw new Error(tr("parts.notFuture"));
+    if (parts && repeat) throw new Error(tr("parts.notRepeat"));
 
     if (isRepayment) {
       const friendId = document.getElementById("repayment-friend").value;
@@ -4793,7 +5118,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         }
         return;
       }
-      queueEntryEdit_(id, fields, sendSplits ? (charge.splits || []) : null, tagIds, billToSave, repeat || groupSize ? { repeat, groupSize } : undefined);
+      // Split by category: the other parts go with the same save; a purchase turned back to one category sends none (they go).
+      const partsExtra = parts ? { parts: parts.slice(1) } : partsOrigin_ ? { parts: [] } : {};
+      const editExtra = repeat || groupSize || partsExtra.parts ? Object.assign({ repeat, groupSize }, partsExtra) : undefined;
+      queueEntryEdit_(id, fields, sendSplits ? (charge.splits || []) : null, tagIds, billToSave, editExtra);
       exitEditMode();
       flushEntryEdit_(id); // not awaited — runs in the background
       // Re-rendered from what's already in hand (with the queued edit
@@ -4862,7 +5190,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         ...businessLink,
         ...waitingFields
       }, charge.splits || [], tagIds, billApplied && splits && splits.length ? billToJSON_() : undefined,
-      { kind: "create", linkRecurringId: payingRecurringId_ || "", repeat, groupSize });
+      { kind: "create", linkRecurringId: payingRecurringId_ || "", repeat, groupSize, ...(parts ? { parts: parts.slice(1) } : {}) });
       backgroundSaved = { kind: "create", id: newId };
       tipNoteSavedEntry_(newId, description);
     } else {
@@ -5214,6 +5542,10 @@ function entryHeadline_(entry) {
     const marker = cat && cat.icon
       ? `<span class="entry-cat-icon" style="background:${safeColor_(cat.color)}">${escapeHtml(cat.icon)}</span>`
       : `<span class="type-dot" data-type="${entry.type}"></span>`;
+    if (entry._parts) {   // a split purchase: every category it holds
+      const names = [...new Set(entry._parts.map((p) => categoryName(p.category_id)))];
+      return { title: `${marker}${escapeHtml(names.join(" + "))}`, meta: entryAccountMeta_(entry) };
+    }
     return { title: `${marker}${escapeHtml(categoryName(entry.category_id))}`, meta: entryAccountMeta_(entry) };
   }
   const withdrawal = Number(entry.amount) < 0;
@@ -5385,6 +5717,7 @@ function buildEntryRow_(entry) {
   left.innerHTML = `
     <div class="entry-category">${headline.title}</div>
     ${entryDescShown_(entry) ? `<div class="entry-desc">${escapeHtml(entryDescShown_(entry))}</div>` : ""}
+    ${entry._parts ? `<div class="entry-desc entry-parts">${escapeHtml(purchasePartsLine_(entry))}</div>` : purchasePartOfNote_(entry)}
     <div class="entry-meta">${entryMetaHtml_(entry, headline)}</div>
     ${entry.income_waiting === "1" ? `<div class="entry-desc">${escapeHtml(tr("income.waitingBadge"))}</div>` : ""}
     ${refundRowNote_(entry)}
@@ -5453,7 +5786,46 @@ function joinExchangeAcrossDays_(entries) {
   if (!joined.size) return entries;
   return entries.filter((e) => !drop.has(e.id)).map((e) => joined.get(e.id) || e);
 }
+// Split by category: the parts of one purchase found together in a list become ONE row (owner, 2026-11-27): the whole amount,
+// every category in its title, and a line with each part. Its id is the main entry's, so tapping it opens the whole purchase.
+function joinPurchaseParts_(list) {
+  const groups = new Map();
+  list.forEach((e) => {
+    const pid = String((e && e.purchase_id) || "");
+    if (!pid || e.type !== "expense" || e._exchangePair) return;
+    if (!groups.has(pid)) groups.set(pid, []);
+    groups.get(pid).push(e);
+  });
+  if (![...groups.values()].some((g) => g.length > 1)) return list;
+  const out = [], done = new Set();
+  list.forEach((e) => {
+    const pid = String((e && e.purchase_id) || "");
+    const g = pid ? groups.get(pid) : null;
+    if (!g || g.length < 2) { out.push(e); return; }
+    if (done.has(pid)) return;
+    done.add(pid);
+    const parts = g.slice().sort((a, b) => (a.id === pid ? -1 : 0) - (b.id === pid ? -1 : 0));
+    const sum = (k) => (parts.some((x) => x[k] == null) ? null : Math.round(parts.reduce((t, x) => t + Number(x[k]), 0) * 100) / 100);
+    const queued = parts.find((x) => x._queueStatus);
+    out.push(Object.assign({}, parts[0], {
+      amount: sum("amount"), own_share: sum("own_share"), amount_pen: sum("amount_pen"), own_share_pen: sum("own_share_pen"),
+      splits: parts.flatMap((x) => x.splits || []), _parts: parts,
+      _queueStatus: queued ? queued._queueStatus : parts[0]._queueStatus, _queueError: queued ? queued._queueError : parts[0]._queueError
+    }));
+  });
+  return out;
+}
+function purchasePartsLine_(entry) {
+  return entry._parts.map((p) => `${categoryName(p.category_id)} ${moneyFmt(Number(p.amount))}`).join(" · ");
+}
+// A list that holds only one part of a purchase (a category's list): "PEN 40.00 of 160.00 · split purchase".
+function purchasePartOfNote_(entry) {
+  if (entry._parts || !entry.purchase_id || !(Number(entry.purchase_count) > 1) || entry.purchase_total == null) return "";
+  return `<div class="entry-desc">${escapeHtml(tr("parts.partOf", { part: formatAmount(Number(entry.amount), entry.currency), total: formatAmount(Number(entry.purchase_total), entry.currency) }))}</div>`;
+}
+
 function pairExchangeLegs_(dayEntries) {
+  dayEntries = joinPurchaseParts_(dayEntries);
   const used = new Set();
   const out = [];
   const legs = dayEntries.filter((e) => exchangeSideOf_(e));
@@ -7599,6 +7971,12 @@ function setEntryLoading_(state) {
 }
 
 async function startEditEntry(entry) {
+  // Split by category: whichever part was tapped, the form edits the purchase's main entry, with all its parts (they arrive below).
+  let partsLoad = null;
+  if (entry && entry.purchase_id && entry.type === "expense" && purchasePartsOn_()) {
+    partsLoad = purchasePartsFor_(entry);
+    entry = Object.assign({}, entry, { id: String(entry.purchase_id), splits: [] });
+  }
   resetChargeBox_(entry);
   setTimeout(updateChargeBox_, 300);   // (once the form below shows this entry)
   // A plain edit always starts as a plain edit: the "type of transfer" and the person must not carry over from a previous
@@ -7728,11 +8106,12 @@ async function startEditEntry(entry) {
   // Nothing can be saved until splits and tags are here: Save would send them as empty, as if the person had removed them
   // (a friend's share and the trip link were lost that way). Rows from Home carry them and open at once.
   const loadSeq = ++entryLoadSeq_;
-  setEntryLoading_(!Array.isArray(entry.tagIds) || (entry.type === "expense" && !Array.isArray(entry.splits)) ? "loading" : "");
+  setEntryLoading_(partsLoad || !Array.isArray(entry.tagIds) || (entry.type === "expense" && !Array.isArray(entry.splits)) ? "loading" : "");
   let splits = [];
   let entryTagIds = [];
+  let savedParts = null;
   try {
-    [splits, entryTagIds] = await Promise.all([splitsPromise || [], tagsPromise]);
+    [splits, entryTagIds, savedParts] = await Promise.all([splitsPromise || [], tagsPromise, partsLoad]);
   } catch (err) {
     if (loadSeq === entryLoadSeq_) setEntryLoading_("failed");
     return;
@@ -7769,6 +8148,14 @@ async function startEditEntry(entry) {
     }
   }
 
+  // Split by category: the Amount is the whole purchase and each part shows with its own category, amount and friends.
+  if (savedParts && savedParts.length > 1) {
+    const total = Math.round(savedParts.reduce((sum, p) => sum + Number(p.amount), 0) * 100) / 100;
+    document.getElementById("amount").value = total;
+    editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(total, entry.currency), entry.date);
+    partsOn_(partsFromSaved_(savedParts));
+    partsOrigin_ = savedParts;
+  }
   entryTagIds.forEach((id) => selectedTagIds.add(id));
   populateTags();
   setTripPick_(entry.trip_id);
@@ -8367,6 +8754,7 @@ function queueEntryEdit_(id, fields, splits, tagIds, bill, extra) {
     repeat: (extra && extra.repeat) || (previous && previous.repeat) || null,
     loan: !!(extra && extra.loan) || !!(previous && previous.loan),
     groupSize: (extra && extra.groupSize) || (previous && previous.groupSize) || null,
+    parts: extra && extra.parts !== undefined ? extra.parts : (previous ? previous.parts : undefined),   // split by category: the other parts
     status: "saving", lastError: null, queuedAt: Date.now()
   });
   setQueuedEdits_(edits);
@@ -8473,7 +8861,7 @@ function applyQueuedEditOverlay_(entries) {
     });
   }
   const movedIds = new Set();
-  return reseatMovedEntries_(entries.map((entry) => {
+  return overlayPurchaseParts_(reseatMovedEntries_(entries.map((entry) => {
     const q = byId[entry.id];
     if (!q) return entry;
     const merged = Object.assign({}, entry, q.fields);
@@ -8489,7 +8877,37 @@ function applyQueuedEditOverlay_(entries) {
     merged._queueStatus = q.status;
     merged._queueError = q.lastError;
     return merged;
-  }), movedIds);
+  }), movedIds), queued);
+}
+
+// Split by category: a purchase being saved shows with the parts that were typed (its other parts are not on the server yet, or
+// still have their old amounts), right after its main entry; the old parts make way. Their main-currency figures follow the main
+// entry's rate (the real ones arrive with the next refresh).
+function overlayPurchaseParts_(entries, queued) {
+  const withParts = queued.filter((q) => Array.isArray(q.parts));
+  if (!withParts.length) return entries;
+  let out = entries;
+  withParts.forEach((q) => {
+    if (!out.some((e) => e.id === q.id)) return;
+    out = out.filter((e) => e.id === q.id || String(e.purchase_id || "") !== q.id);
+    const at = out.findIndex((e) => e.id === q.id);
+    const main = Object.assign({}, out[at], { purchase_id: q.parts.length ? q.id : "" });
+    const rate = Number(main.amount) ? Number(main.amount_pen) / Number(main.amount) : NaN;
+    const synth = q.parts.map((p) => {
+      const e = Object.assign({}, main, { id: p.id, category_id: p.category_id, amount: p.amount, splits: p.splits || [], purchase_id: q.id });
+      applyDerivedOverlayFields_(e, p.splits || []);
+      if (e.currency !== homeCur()) {
+        e.amount_pen = isNaN(rate) ? null : Number(p.amount) * rate;
+        e.own_share_pen = isNaN(rate) ? null : e.own_share * rate;
+      }
+      if (q.status) { e._queueStatus = q.status; e._queueError = q.lastError; } else { delete e._queueStatus; delete e._queueError; }
+      return e;
+    });
+    const total = Math.round((Number(main.amount) + q.parts.reduce((sum, p) => sum + Number(p.amount), 0)) * 100) / 100;
+    [main].concat(synth).forEach((e) => { e.purchase_total = total; e.purchase_count = q.parts.length + 1; });
+    out = out.slice(0, at).concat([main], synth, out.slice(at + 1));
+  });
+  return out;
 }
 
 // Permanently folds a successfully-saved edit into lastRenderedEntries_
@@ -8585,8 +9003,10 @@ async function flushEntryEdit_(id) {
             : edit.splits !== null;
           const out = await callApi("saveEntryAll", withThen_(isCreate
             ? { kind: "create", fields: Object.assign({}, edit.fields, { client_id: edit.id, tag_ids: edit.tagIds }), link_recurring_id: edit.linkRecurringId || "",
-                splits: withSplits ? (edit.splits || []) : undefined, bill: withSplits && edit.bill ? edit.bill : undefined, repeat: edit.repeat || undefined, trip_group_size: edit.groupSize || undefined }
-            : { kind: "update", id: edit.id, fields: edit.fields, splits: withSplits ? edit.splits : undefined, tag_ids: edit.tagIds || [], bill: edit.bill || undefined, repeat: edit.repeat || undefined, trip_group_size: edit.groupSize || undefined },
+                splits: withSplits ? (edit.splits || []) : undefined, bill: withSplits && edit.bill ? edit.bill : undefined, repeat: edit.repeat || undefined, trip_group_size: edit.groupSize || undefined,
+                parts: edit.parts }
+            : { kind: "update", id: edit.id, fields: edit.fields, splits: withSplits ? edit.splits : undefined, tag_ids: edit.tagIds || [], bill: edit.bill || undefined, repeat: edit.repeat || undefined, trip_group_size: edit.groupSize || undefined,
+                parts: edit.parts },
           entryThenReads_(edit, withSplits)));
           if (isCreate) { created = out; linkFailed = !!(out && out.link_failed); }
           else if (out && out.follow) followed = out.follow;
@@ -8632,6 +9052,11 @@ async function flushEntryEdit_(id) {
           commitCreateToLastRendered_(edit, created);
         } else {
           commitEditToLastRendered_(edit);
+        }
+        // Split by category: the parts stay drawn as saved until the fresh list (with their real ids and figures) arrives.
+        if (Array.isArray(edit.parts)) {
+          lastRenderedEntries_ = overlayPurchaseParts_(lastRenderedEntries_, [Object.assign({}, edit, { status: null, lastError: null })]);
+          if (edit.kind !== "create") refreshEntryList().catch(() => {});
         }
         unqueueEntryEdit_(id);
         redrawEntriesSafely_();
@@ -30978,6 +31403,8 @@ const LINK_ICON_RULES_ = [
   [/^(skip|omitir)\b/i, "skip"],
   [/^(choose which loans|elegir qué préstamos)/i, "down"],   // it opens the list of loans; a tick read as "done" (testers 2.68.2)
   [/^(use|usar|apply|aplicar|match|emparejar|choose|elegir|record|registrar|mark|marcar|keep|dejar)\b/i, "check"],
+  [/^(split into categories|dividir en categorías)$/i, "tag"],   // split by category (2026-11-27): one purchase in several categories
+  [/^(only one category|solo una categoría)$/i, "cross"],
   [/^(split|repartir|people|personas|shared with a group|¿compartido con un grupo|group|liquidación)/i, "users"],
   [/^(client|el cliente)/i, "briefcase"],
   [/^(sign out|cerrar (la )?sesión|take back|retirar)/i, "logout"],
@@ -35576,8 +36003,9 @@ async function openLoanDetail(friendId, friendName, projectId) {
   // history of settled loans doesn't bury the ones that still need
   // action. Already-paid stays collapsed behind its own toggle by
   // default, same reasoning.
-  const pending = loans.filter((l) => l.status !== "forgiven" && l.remaining > 0.004);
-  const alreadyPaid = loans.filter((l) => l.status === "forgiven" || l.remaining <= 0.004);
+  // A split purchase shared with this person is ONE line in each list (owner, 2026-11-27), whatever its parts.
+  const pending = joinPurchaseLoans_(loans.filter((l) => l.status !== "forgiven" && l.remaining > 0.004));
+  const alreadyPaid = joinPurchaseLoans_(loans.filter((l) => l.status === "forgiven" || l.remaining <= 0.004));
 
   if (loans.length === 0) {
     emptyNote.textContent = tr("loanDetail.empty");
@@ -35660,6 +36088,33 @@ function renderForgiveAny_(forgivable, friendId, friendName) {
   };
 }
 document.getElementById("forgive-pick-close").addEventListener("click", () => { document.getElementById("forgive-pick-backdrop").hidden = true; });
+
+// Split by category: the debts of one purchase's parts (same direction and currency) shown as one line that opens the purchase.
+function joinPurchaseLoans_(list) {
+  const groups = new Map();
+  list.forEach((l) => {
+    if (!l.purchase_id || l.origin !== "entry") return;
+    const k = `${l.purchase_id}|${l.direction}|${l.currency}|${l.status === "forgiven" ? "f" : ""}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(l);
+  });
+  if (![...groups.values()].some((g) => g.length > 1)) return list;
+  const out = [], done = new Set();
+  list.forEach((l) => {
+    const k = l.purchase_id && l.origin === "entry" ? `${l.purchase_id}|${l.direction}|${l.currency}|${l.status === "forgiven" ? "f" : ""}` : "";
+    const g = k ? groups.get(k) : null;
+    if (!g || g.length < 2) { out.push(l); return; }
+    if (done.has(k)) return;
+    done.add(k);
+    const sum = (f) => Math.round(g.reduce((t, x) => t + Number(x[f] || 0), 0) * 100) / 100;
+    out.push(Object.assign({}, g[0], {
+      amount: sum("amount"), settled: sum("settled"), remaining: sum("remaining"), forgiven_so_far: sum("forgiven_so_far"),
+      overdue: g.some((x) => x.overdue), unapplied: false, unapplied_sources: undefined,   // (a payment kept from a deleted loan is applied part by part)
+      entry_id: l.purchase_id, _loans: g
+    }));
+  });
+  return out;
+}
 
 function buildLoanDetailRow_(l, friendId, friendName) {
   const kind = l.direction === "they_owe_me" ? "owed-to-me" : "i-owe";
