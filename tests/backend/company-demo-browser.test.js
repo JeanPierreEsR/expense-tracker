@@ -37,13 +37,14 @@ test("the test copy never reaches the real server, and Exit gives the real copy 
     await page.waitForFunction(() => typeof meta !== "undefined" && meta && meta.capabilities, null, { timeout: 60000 });
     await page.evaluate(() => localStorage.setItem("etOnboarded", "1"));
     const before = await page.evaluate((keys) => keys.map((k) => localStorage.getItem(k)), signIn);
-    await openMore();
-    // The pack is switched on for the owner's copy just after the first load (enableBusinessForOwnerOnce): its row appears then.
-    await page.waitForSelector("#more-business-btn", { state: "visible", timeout: 60000 });
-    await clear();
+    // More → Companies & projects, tapped again until its screen shows: the pack is switched on for the owner's copy just after the first
+    // load (enableBusinessForOwnerOnce), and a late refresh or question can take the screen back.
+    for (let i = 0; i < 60 && !(await page.isVisible("#business-demo-open")); i++) {
+      await openMore();
+      if (await page.isVisible("#more-business-btn")) await page.click("#more-business-btn", { timeout: 2000 }).catch(() => {});
+      await page.waitForTimeout(1000);
+    }
     await page.waitForTimeout(600);
-    await page.click("#more-business-btn");
-    await page.waitForSelector("#business-demo-open", { state: "visible" });
     await Promise.all([page.waitForNavigation(), page.click("#business-demo-open")]);
     calls.length = 0;   // from here on: the test copy
 
@@ -59,7 +60,7 @@ test("the test copy never reaches the real server, and Exit gives the real copy 
     const out = calls.filter((u) => /\/api\b|script\.google|googleapis|workers\.dev/.test(u));
     assert.deepEqual(out, [], "no request left the phone for a server");
 
-    await openMore();
+    for (let i = 0; i < 30 && !(await page.isVisible("#more-demo-exit")); i++) { await openMore(); await page.waitForTimeout(600); }
     await page.waitForTimeout(600);
     await Promise.all([page.waitForNavigation(), page.click("#more-demo-exit")]);
     const after = await page.evaluate((keys) => keys.map((k) => localStorage.getItem(k)), signIn);
