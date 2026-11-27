@@ -9631,7 +9631,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
         <select class="review-trip">${reviewTripOptions_(entry.trip_id || entry.suggested_trip_id || "")}</select>` : ""}
         ${reviewBusinessFits_(entry) ? `
         <label class="review-transfer-label">${escapeHtml(tr("field.business"))}</label>
-        <select class="review-business"></select>` : ""}
+        <select class="review-business"></select>
+        ${unitsOwnOn_() ? `<label class="review-transfer-label review-unit-label" hidden>${escapeHtml(tr("field.unit"))}</label>
+        <select class="review-unit" hidden></select>` : ""}` : ""}
         ${entry.type === "transfer" && loneX === "out" ? `
         <label class="review-transfer-label">${escapeHtml(tr("xleg.leftFrom"))}</label>
         <select class="review-from">${reviewTransferSideOptions_(entry.payment_method_id)}</select>` : ""}
@@ -9824,7 +9826,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       if (tripEl) fields.trip_id = tripEl.value;
       // A company copy's company / project picked on the card (piece 2): sent only when the card has the box.
       const bizEl = item.querySelector(".review-business");
-      if (bizEl) Object.assign(fields, reviewBusinessFields_(bizEl.value));
+      if (bizEl) Object.assign(fields, reviewBusinessFields_(bizEl.value), reviewUnitFields_(item));
       // The account the money left (expense) or arrived in (income): changed here when the e-mail did not name it, or named the wrong one.
       const accountEl = item.querySelector(".review-account");
       // No account picked while there are accounts to pick: ask once (journeys run, 2026-11-17: items confirmed with no account count in
@@ -9941,6 +9943,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
           payment_method_id: rowAccount && rowAccount !== (entry.payment_method_id || "") ? rowAccount : (fresh.payment_method_id || ""),
           trip_id: rowTripEl ? rowTripEl.value : (fresh.trip_id || ""),
           ...(item.querySelector(".review-business") ? reviewBusinessFields_(item.querySelector(".review-business").value) : {}),
+          ...reviewUnitFields_(item),
           category_id: rowCategory && rowCategory !== (entry.category_id || "") ? rowCategory : (fresh.category_id || rowCategory),
           description: rowDescription !== (entry.description || "") ? rowDescription : (fresh.description || ""),
           amount: amountEdited ? amt : fresh.amount,
@@ -9998,7 +10001,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
 }
 
 // What the person changed on a Needs review card and has not confirmed yet survives a redraw of the list (see refreshReviewQueue).
-const REVIEW_ROW_BOXES_ = [".review-category", ".review-description", ".review-amount", ".review-account", ".review-trip", ".review-business", ".review-from", ".review-to", ".review-platform", ".review-land", ".review-x-out", ".review-x-in"];
+const REVIEW_ROW_BOXES_ = [".review-category", ".review-description", ".review-amount", ".review-account", ".review-trip", ".review-business", ".review-unit", ".review-from", ".review-to", ".review-platform", ".review-land", ".review-x-out", ".review-x-in"];
 function reviewBoxInUse_(list) {
   const a = document.activeElement;
   return !!(a && list.contains(a) && a.matches("input[type=text], input:not([type]), select, textarea") && a.closest(".review-item"));
@@ -10041,6 +10044,7 @@ function reviewPutBackRowEdits_(item, changed) {
     if (box.tagName === "SELECT" && ![...box.options].some((o) => o.value === changed[sel])) return;   // that choice is gone (an account deleted)
     box.value = changed[sel];
     mark();
+    if (sel === ".review-business") fillReviewUnit_(item);   // the unit box follows the project put back
   });
   if (changed && item.classList.contains("review-collapsed")) { item.classList.remove("review-collapsed"); reviewExpanded_.add(item.dataset.entryId); }
 }
@@ -11408,6 +11412,7 @@ let peopleEditing_ = false;
 let peopleSelected_ = new Set();
 let categoriesEditing_ = false;
 let categoriesSelected_ = new Set();
+let tagsSelected_ = new Set();   // Edit mode also ticks tags (owner, 2026-11-27): the same bar deletes them
 let tripsEditing_ = false;
 let tripsSelected_ = new Set();
 let accountsEditing_ = false;
@@ -22266,6 +22271,7 @@ function catFoldOpen_(part, open) {
   document.getElementById(`${part}-fold-body`).hidden = !open;
   document.getElementById(`${part}-fold-toggle`).setAttribute("aria-expanded", open ? "true" : "false");
   document.getElementById(`${part}-fold-chevron`).textContent = open ? "⌄" : "›";
+  if (typeof categoriesEditing_ !== "undefined" && categoriesEditing_) syncCategoriesEditBar_();   // "Select all" counts the parts that are open
 }
 ["cats", "tags"].forEach((part) => document.getElementById(`${part}-fold-toggle`).addEventListener("click", () =>
   catFoldOpen_(part, document.getElementById(`${part}-fold-body`).hidden)));
@@ -22277,6 +22283,8 @@ let tagItemCounts_ = {};   // tag id -> Programmed items carrying it (2026-11-16
 let tagModalTag_ = null;
 const tagsManageOn_ = () => !!(meta && meta.capabilities && meta.capabilities.tagsManage);
 const tagEntriesOn_ = () => !!(meta && meta.capabilities && meta.capabilities.tagEntries);
+const tagsBulkOn_ = () => !!(meta && meta.capabilities && meta.capabilities.tagsBulkDelete);
+const tagsDeletable_ = () => ((meta && meta.tags) || []).filter((t) => t.id !== "system-annual");
 const tagsSorted_ = () => ((meta && meta.tags) || []).slice().sort((a, b) =>
   (a.id === "system-annual" ? -1 : b.id === "system-annual" ? 1 : String(a.name).localeCompare(String(b.name))));
 const tagCountText_ = (id) => (tagCounts_ ? tr("categories.entryCount", { n: tagCounts_[id] || 0 }) : "");
@@ -22288,13 +22296,30 @@ function renderTagsList_() {
   document.getElementById("tags-fold-count").textContent = tags.length ? tr("tagsScreen.count", { n: tags.length }) : tr("tagsScreen.none");
   document.querySelector("#tags-fold-body > .hint").textContent = tr(tagEntriesOn_() ? "tagsScreen.hintList" : manage ? "tagsScreen.hint" : "tagsScreen.hintOld");
   list.innerHTML = "";
+  const ticking = categoriesEditing_ && tagsBulkOn_();
+  const stillThere = new Set(tags.map((t) => t.id));
+  tagsSelected_ = new Set([...tagsSelected_].filter((id) => stillThere.has(id)));
   tags.forEach((t) => {
     const builtIn = t.id === "system-annual";
     const row = document.createElement("div");
-    row.className = "recurring-row";
+    row.className = "recurring-row" + (ticking ? " friends-check-row" : "");
     delKey_(row, "tag:" + t.id);
     const sub = [tagCountText_(t.id), builtIn ? tr("tagsScreen.builtIn") : ""].filter(Boolean).join(" · ");
-    row.innerHTML = `<div><div class="recurring-row-name">${escapeHtml(t.name)}</div><div class="recurring-row-sub">${escapeHtml(sub)}</div></div>`;
+    const lead = !ticking ? "" : builtIn ? `<span class="friends-check-spacer"></span>`
+      : `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${tagsSelected_.has(t.id) ? " checked" : ""}>`;
+    row.innerHTML = `${lead}<div><div class="recurring-row-name">${escapeHtml(t.name)}</div><div class="recurring-row-sub">${escapeHtml(sub)}</div></div>`;
+    // Edit mode: a tap ticks the tag (the built-in Annual cannot be deleted) instead of opening it.
+    if (ticking) {
+      row.addEventListener("click", () => {
+        if (builtIn) return;
+        if ([...categoriesSelected_].some(categoryTickHidden_)) { categoriesSelected_ = new Set(); renderCategoriesList_(); }   // "show again" and delete are not mixed
+        if (tagsSelected_.has(t.id)) tagsSelected_.delete(t.id); else tagsSelected_.add(t.id);
+        row.querySelector(".friends-check").checked = tagsSelected_.has(t.id);
+        syncCategoriesEditBar_();
+      });
+      list.appendChild(row);
+      return;
+    }
     // Tapping a tag lists its entries; renaming and deleting are in that list's ⋯ menu (owner, 2026-11-27). An older backend cannot
     // list one tag's entries: there the tap opens the rename window as before.
     if (tagEntriesOn_()) row.addEventListener("click", () => openTagDrilldown_(t));
@@ -22487,8 +22512,10 @@ function renderCategoriesList_() {
   list.innerHTML = "";
   const bothTypes = categoryNamesInBothTypes_();
   const selectable = meta.categories.filter((c) => categoryListed_(c) && !isOtherCategory_(c));
-  document.getElementById("categories-edit-btn").hidden = !(meta && meta.capabilities && meta.capabilities.categoriesBulkDelete && selectable.length);
-  if (categoriesEditing_ && !selectable.length) setCategoriesEditing_(false, false);
+  const canTickCats = !!(meta && meta.capabilities && meta.capabilities.categoriesBulkDelete && selectable.length);
+  const canTickTags = tagsBulkOn_() && tagsDeletable_().length > 0;
+  document.getElementById("categories-edit-btn").hidden = !(canTickCats || canTickTags);
+  if (categoriesEditing_ && !canTickCats && !canTickTags) setCategoriesEditing_(false, false);
   const stillThere = new Set(selectable.map((c) => c.id));
   categoriesSelected_ = new Set([...categoriesSelected_].filter((id) => stillThere.has(id)));
   ["expense", "income"].forEach((type) => {
@@ -22538,13 +22565,14 @@ function setCategoriesEditing_(on, redraw = true) {
   if (on === categoriesEditing_ && redraw) return;
   categoriesEditing_ = on;
   categoriesSelected_ = new Set();
+  tagsSelected_ = new Set();
   setEditIcon_(document.getElementById("categories-edit-btn"), on);
   document.getElementById("categories-add-btn").hidden = on;
   document.getElementById("categories-suggest-btn").hidden = on || !(meta && meta.capabilities && meta.capabilities.profile);
   document.getElementById("categories-editbar").hidden = !on;
   document.getElementById("screen-categories").classList.toggle("categories-editing", on);
   placeCategoriesEditBar_();
-  if (redraw) renderCategoriesList_();
+  if (redraw) { renderCategoriesList_(); renderTagsList_(); }
 }
 function placeCategoriesEditBar_() {
   const nav = document.getElementById("bottom-nav");
@@ -22556,11 +22584,17 @@ const categoryTickHidden_ = (id) => { const c = ((meta && meta.categories) || []
 const categoryListed_ = (c) => c.type === "expense" || c.type === "income";
 const categoriesSelectable_ = () => ((meta && meta.categories) || []).filter((c) => categoryListed_(c) && !isOtherCategory_(c));
 function syncCategoriesEditBar_() {
-  const n = categoriesSelected_.size;
-  const hiddenKind = n > 0 && [...categoriesSelected_].some(categoryTickHidden_);
+  const hiddenKind = categoriesSelected_.size > 0 && [...categoriesSelected_].some(categoryTickHidden_);
+  if (hiddenKind && tagsSelected_.size) { tagsSelected_ = new Set(); renderTagsList_(); }   // "show again" is for categories only
+  const n = categoriesSelected_.size + tagsSelected_.size;
+  // "Select all" counts what it would tick: the categories (when their part is open or the tags' is closed) and the tags (when theirs is open).
+  const catsTotal = hiddenKind ? categoriesSelectable_().filter((c) => categoryTickHidden_(c.id)).length : bulkShowAgain_() ? categoriesSelectable_().filter((c) => !catHidden_(c)).length : categoriesSelectable_().length;
+  const tagsTotal = hiddenKind || !tagsBulkOn_() || !catFoldIsOpen_("tags") ? 0 : tagsDeletable_().length;
   syncOneKindBar_(document.getElementById("categories-delete-selected-btn"), document.getElementById("categories-selectall-btn"), n, hiddenKind,
-    hiddenKind ? categoriesSelectable_().filter((c) => categoryTickHidden_(c.id)).length : bulkShowAgain_() ? categoriesSelectable_().filter((c) => !catHidden_(c)).length : categoriesSelectable_().length);
+    (selectAllTakesCats_() ? catsTotal : 0) + tagsTotal);
 }
+const catFoldIsOpen_ = (part) => !document.getElementById(`${part}-fold-body`).hidden;
+const selectAllTakesCats_ = () => catFoldIsOpen_("cats") || !catFoldIsOpen_("tags");
 document.getElementById("categories-edit-btn").addEventListener("click", () => {
   if (!categoriesEditing_) catFoldOpen_("cats", true);   // the pencil is for categories: show them when it is turned on
   setCategoriesEditing_(!categoriesEditing_);
@@ -22569,8 +22603,18 @@ document.getElementById("categories-done-btn").addEventListener("click", () => s
 document.getElementById("categories-back-btn").addEventListener("click", () => setCategoriesEditing_(false));
 document.getElementById("categories-selectall-btn").addEventListener("click", () => {
   const sel = categoriesSelectable_();
-  categoriesSelected_ = selectAllOneKind_(categoriesSelected_, sel.filter((c) => !categoryTickHidden_(c.id)).map((c) => c.id), sel.filter((c) => categoryTickHidden_(c.id)).map((c) => c.id), categoryTickHidden_);
+  // Everything already ticked: "Select none" clears both parts.
+  const tagIds = tagsBulkOn_() && catFoldIsOpen_("tags") ? tagsDeletable_().map((t) => t.id) : [];
+  const catsAll = !selectAllTakesCats_() || (categoriesSelected_.size > 0 && sel.filter((c) => !categoryTickHidden_(c.id)).every((c) => categoriesSelected_.has(c.id)));
+  const tagsAll = tagIds.every((id) => tagsSelected_.has(id));
+  if ((categoriesSelected_.size || tagsSelected_.size) && catsAll && tagsAll) {
+    categoriesSelected_ = new Set(); tagsSelected_ = new Set();
+  } else {
+    if (selectAllTakesCats_()) categoriesSelected_ = selectAllOneKind_(categoriesSelected_, sel.filter((c) => !categoryTickHidden_(c.id)).map((c) => c.id), sel.filter((c) => categoryTickHidden_(c.id)).map((c) => c.id), categoryTickHidden_);
+    if (![...categoriesSelected_].some(categoryTickHidden_)) tagIds.forEach((id) => tagsSelected_.add(id));
+  }
   renderCategoriesList_();
+  renderTagsList_();
 });
 function showCategoriesAgainFlow_(chosen) {
   const ids = chosen.map((c) => c.id);
@@ -22584,11 +22628,34 @@ function showCategoriesAgainFlow_(chosen) {
 function closeCatBulkSheet_() { document.getElementById("cat-bulk-backdrop").hidden = true; }
 document.getElementById("cat-bulk-close").addEventListener("click", closeCatBulkSheet_);
 
-document.getElementById("categories-delete-selected-btn").addEventListener("click", () => {
+document.getElementById("categories-delete-selected-btn").addEventListener("click", async () => {
   const picked = meta.categories.filter((c) => categoriesSelected_.has(c.id));
   if (picked.length && picked.every((c) => categoryTickHidden_(c.id))) { setCategoriesEditing_(false); showCategoriesAgainFlow_(picked); return; }
+  // Tags first (one question, one call), then the categories' own flow if some are ticked too.
+  const tags = tagsDeletable_().filter((t) => tagsSelected_.has(t.id));
+  if (tags.length && !(await deleteTagsAsk_(tags))) return;
   if (picked.length) startCategoriesBulkDelete_(picked);
+  else setCategoriesEditing_(false);
 });
+// Deletes the ticked tags after one question that says how many entries carry them (they stay, only losing the labels).
+async function deleteTagsAsk_(tags) {
+  const n = tagCounts_ ? tags.reduce((sum, t) => sum + (tagCounts_[t.id] || 0), 0) : null;
+  const items = tags.reduce((sum, t) => sum + (tagItemCounts_[t.id] || 0), 0);
+  const names = shortNames_(tags.map((t) => t.name));
+  const ask = (tags.length === 1
+    ? (n === 0 ? tr("tagsScreen.deleteAskUnused", { name: tags[0].name }) : tr("tagsScreen.deleteAsk", { name: tags[0].name, n: n == null ? "?" : n }))
+    : (n === 0 ? tr("tagsScreen.deleteManyUnused", { k: tags.length, names }) : tr("tagsScreen.deleteMany", { k: tags.length, names, n: n == null ? "?" : n })))
+    + (items ? " " + tr("tagsScreen.deleteAskItems", { n: items }) : "");
+  if (!await askConfirmApp_(ask, tr("confirmBtn.delete"))) return false;
+  const ids = tags.map((t) => t.id);
+  ids.forEach((id) => markDeleting_("tag:" + id));
+  tagsSelected_ = new Set();
+  saveBehindScreen_(() => callApi("deleteTags", { ids }), async () => {
+    ids.forEach((id) => unmarkDeleting_("tag:" + id));
+    await refreshTagsAfterChange_();
+  });
+  return true;
+}
 
 async function startCategoriesBulkDelete_(chosen) {
   const backdrop = document.getElementById("cat-bulk-backdrop");
@@ -26552,7 +26619,30 @@ function reviewBusinessFits_(entry) {
 }
 function fillReviewBusiness_(item, entry) {
   const sel = item.querySelector(".review-business");
-  if (sel) fillBusinessOptions_(sel, businessPickValue_(entry) || companyDefaultPick_());
+  if (!sel) return;
+  fillBusinessOptions_(sel, businessPickValue_(entry) || companyDefaultPick_());
+  fillReviewUnit_(item, entry.unit_id || "");
+  sel.addEventListener("change", () => fillReviewUnit_(item));
+}
+// The card's Unit box (Units.gs): the units of the project picked just above, shown only when it has some; keeps its choice while
+// the project stays the same.
+function fillReviewUnit_(item, keep) {
+  const sel = item.querySelector(".review-unit");
+  const biz = item.querySelector(".review-business");
+  if (!sel || !biz) return;
+  const pid = biz.value.startsWith("p:") ? biz.value.slice(2) : "";
+  const units = pid ? unitsOfProject_(pid) : [];
+  const want = keep !== undefined ? keep : sel.value;
+  sel.innerHTML = `<option value="">${escapeHtml(tr("unit.none"))}</option>` + units.map((u) => `<option value="${escapeHtml(u.id)}">${escapeHtml(u.name)}</option>`).join("");
+  sel.value = units.some((u) => u.id === want) ? want : "";
+  sel.hidden = !units.length;
+  item.querySelector(".review-unit-label").hidden = !units.length;
+  if (units.length) personShortList_(sel, { lastUsed: (id) => unitLastUsed_()[id] || "", title: () => tr("unit.choose"), noneKey: "friendPick.noneThing" });
+}
+// What the card sends for its unit: only where the box exists (a company copy with units).
+function reviewUnitFields_(item) {
+  const sel = item.querySelector(".review-unit");
+  return sel ? { unit_id: sel.hidden ? "" : sel.value } : {};
 }
 // "" = personal, "c:<id>" = the company, "p:<id>" = a project (its company comes with it). Both keys always, so "Personal" is a choice.
 function reviewBusinessFields_(value) {

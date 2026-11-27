@@ -160,3 +160,15 @@ function unitNamesToAdd_(projectId, payload) {
   });
   return { names: out, skipped: names.length - out.length };
 }
+
+// unit id -> its name and its project's, as the search reads text ("depa 101 edificio los pinos"), once per request.
+var UNIT_SEARCH_NAMES_ = null;
+function unitSearchNames_() {
+  if (UNIT_SEARCH_NAMES_ && UNIT_SEARCH_NAMES_.memo && UNIT_SEARCH_NAMES_.memo === ROWS_MEMO_) return UNIT_SEARCH_NAMES_.map;
+  var projects = {};
+  getProjectRows_().forEach(function (p) { projects[p.id] = p.name; });
+  var map = {};
+  unitRows_().forEach(function (u) { if (u.name) map[u.id] = searchNormalize_(String(u.name) + ' ' + String(projects[u.project_id] || '')); });
+  UNIT_SEARCH_NAMES_ = { memo: ROWS_MEMO_, map: map };
+  return map;
+}

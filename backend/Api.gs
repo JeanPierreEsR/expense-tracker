@@ -603,6 +603,7 @@ function routeActionSwitch_(action, payload) {
     case 'getTagCounts': return getTagCounts();
     case 'renameTag': return renameTag(payload);
     case 'deleteTag': return deleteTag(payload);
+    case 'deleteTags': return deleteTags(payload);   // several at once, Edit mode (TagManage.gs)
     case 'setCategoryHidden': return setCategoryHidden(payload);
     case 'showCategories': return showCategories(payload);
     case 'addCategoryKeyword':
@@ -1918,7 +1919,11 @@ function buildSearchIndexRows_(entries) {
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
     if (e.income_waiting) row.income_waiting = e.income_waiting;
     if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; row.expected_payment_id = e.expected_payment_id || ''; row.igv_amount = e.igv_amount || ''; }
-    if (business && e.unit_id) row.unit_id = String(e.unit_id);   // a company copy's unit (Units.gs): its row pill, the form's recent units
+    if (business && e.unit_id) {   // a company copy's unit (Units.gs): its row pill, the form's recent units, and found by its name in the search
+      row.unit_id = String(e.unit_id);
+      var unitWords = unitSearchNames_()[row.unit_id];
+      if (unitWords) row._s += ' ' + unitWords;
+    }
     if (business && projSplits[e.id]) { var pp = projectPartsOfEntry_(e, projSplits, projByIdRows); if (pp.length) row.project_parts = pp; }   // piece 6
     return row;
   });

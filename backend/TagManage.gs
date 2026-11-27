@@ -73,3 +73,29 @@ function deleteTag(payload) {
   bumpStructureVersion_();
   return { id: id, entries: removed, items: items };
 }
+
+// Several tags at once (More → Categories & tags, Edit mode; owner 2026-11-27): the same as deleteTag for each, in ONE call (speed rule).
+// The built-in Annual and unknown ids are left out. payload: { ids } -> { tags, entries, items }
+function deleteTags(payload) {
+  var known = {};
+  getAllRows('Tags').forEach(function (t) { known[String(t.id)] = true; });
+  var gone = {};
+  ((payload && payload.ids) || []).forEach(function (id) { id = String(id || ''); if (known[id] && id !== ANNUAL_TAG_ID) gone[id] = true; });
+  var n = Object.keys(gone).length;
+  if (!n) throw new Error(tr_('bulk.tagNotFound'));
+  var removed = 0;
+  deleteRowsWhere_('Entry Tags', function (r) { if (gone[String(r.tag_id)]) { removed++; return true; } return false; });
+  deleteRowsWhere_('Tags', function (r) { return !!gone[String(r.id)]; });
+  var items = 0;
+  if (SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expenses')) {
+    getAllRows('Recurring Expenses').forEach(function (r) {
+      var ids = String(r.tag_ids || '').split(',').map(function (x) { return x.trim(); }).filter(Boolean);
+      var kept = ids.filter(function (x) { return !gone[x]; });
+      if (kept.length === ids.length) return;
+      updateRowFields_('Recurring Expenses', r.id, { tag_ids: kept.join(',') });
+      items++;
+    });
+  }
+  bumpStructureVersion_();
+  return { tags: n, entries: removed, items: items };
+}

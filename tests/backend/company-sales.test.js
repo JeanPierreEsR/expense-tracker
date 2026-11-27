@@ -188,3 +188,17 @@ test("a copy whose units were tags is converted once: names, entries, stages; th
   assert.equal(rt.rows("Settings").find((r) => r.key === "units_model").value, "2");
   assert.equal(rt.api("getMeta", {}).units.filter((x) => x.project_id === project.id).length, 2);
 });
+
+test("a unit's name finds its entries in the search, and Needs review's card sends the unit with the confirm (owner 2026-11-27)", () => {
+  const rt = companyCopy();
+  const { u101, income } = building(rt);
+  income(250, `${mon(0)}-02`);
+  const rows = rt.api("syncEntrySearchIndex", {}).rows;
+  const hit = rows.filter((r) => r.unit_id === u101.id);
+  assert.ok(hit.length >= 1);
+  assert.ok(hit.every((r) => r._s.includes("depa 101")), "the unit's name is in the searchable text");
+  assert.ok(rows.filter((r) => !r.unit_id).every((r) => !r._s.includes("edificio prueba depa")), "only on its own entries");
+  const app = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "..", "docs", "app.js"), "utf8");
+  assert.match(app, /if \(bizEl\) Object\.assign\(fields, reviewBusinessFields_\(bizEl\.value\), reviewUnitFields_\(item\)\);/);
+  assert.match(app, /if \(sel === "\.review-business"\) fillReviewUnit_\(item\);/);
+});

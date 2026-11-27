@@ -173,6 +173,7 @@ function saveUnit(payload) {
   }
   updateRowFields_('Units', u.id, fields);
   if (ROWS_MEMO_) delete ROWS_MEMO_.Units;
+  if (fields.name && fields.name !== String(u.name || '')) bumpStructureVersion_();   // the phones' search copy reads unit names: rebuilt
   return Object.assign({}, u, fields);
 }
 

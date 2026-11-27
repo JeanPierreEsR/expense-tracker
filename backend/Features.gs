@@ -178,6 +178,7 @@ function getCapabilities_() {
     tripBudgets: true,   // Trips.in_budgets ("In my budgets": as usual / left out / only in chosen budgets) counted by every budget sum; an older backend lacks it, so the trip pop-up hides the field
     tripsBulkDelete: true,   // deleteTrips (several trips / events at once, More → Trips & events → Edit); an older backend lacks it, so the app hides the Edit button
     unitsOwn: true,   // a unit belongs to its project and an entry carries unit_id (Units.gs, 2026-11-27); before, units were tags
+    tagsBulkDelete: true,   // deleteTags: several tags in one call (More → Categories & tags → Edit, 2026-11-27)
     tagEntries: true,   // listEntries takes tagId: tapping a tag lists its entries (2026-11-27); an older backend would list everything
     tagsManage: true,   // getTagCounts + renameTag + deleteTag (the Tags part of More → Categories & tags); an older backend lacks them, so the app shows the list and Add only
     categoriesBulkDelete: true,   // previewCategoryDelete + deleteCategories (several categories at once: move into one, or hide; More → Categories → Edit); an older backend lacks them, so the app hides the Edit button

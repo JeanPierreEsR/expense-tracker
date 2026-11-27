@@ -5014,6 +5014,8 @@
     "tagsScreen.hint": { en: "A tag is an extra label that works across categories. Tap one to rename or delete it.", es: "Una etiqueta es una marca adicional que va más allá de las categorías. Toca una para cambiarle el nombre o eliminarla." },
     "tagsScreen.hintOld": { en: "A tag is an extra label that works across categories.", es: "Una etiqueta es una marca adicional que va más allá de las categorías." },
     "tagsScreen.hintList": { en: "A tag is an extra label that works across categories. Tap one to see its entries; to rename or delete it, use ⋯ at the top of that list.", es: "Una etiqueta es una marca adicional que va más allá de las categorías. Toca una para ver sus movimientos; para cambiarle el nombre o eliminarla, usa ⋯ arriba de esa lista." },
+    "tagsScreen.deleteMany": { en: { one: "Delete {k} tags ({names})? 1 label on an entry goes: the entry stays, it only loses that tag.", other: "Delete {k} tags ({names})? {n} labels on entries go: the entries stay, they only lose these tags." }, es: { one: "¿Eliminar {k} etiquetas ({names})? Se quita 1 marca de un movimiento: el movimiento se queda, solo pierde esa etiqueta.", other: "¿Eliminar {k} etiquetas ({names})? Se quitan {n} marcas de los movimientos: los movimientos se quedan, solo pierden estas etiquetas." } },
+    "tagsScreen.deleteManyUnused": { en: "Delete {k} tags ({names})? No entry has them.", es: "¿Eliminar {k} etiquetas ({names})? Ningún movimiento las tiene." },
     "tagsScreen.allDates": { en: "All dates, newest first", es: "Todas las fechas, lo más reciente primero" },
     "tagsScreen.options": { en: "Tag options", es: "Opciones de la etiqueta" },
     "tagsScreen.rename": { en: "Rename tag", es: "Cambiar nombre" },
