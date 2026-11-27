@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="app-release" content="2.78.0"><!-- ship.sh writes the release number here -->
+  <meta name="app-release" content="2.79.0"><!-- ship.sh writes the release number here -->
   <meta name="app-channel" content="live"><!-- "live" here; ship.sh --promote writes "stable" in docs/stable/index.html -->
   <script>
   // Two channels (specs/review-telegram-email.md § Stable and live): the owner uses "live" (this file at the site root); friends use a frozen copy
@@ -46,7 +46,7 @@
   })();
   </script>
   <title data-i18n="app.title">Expense Tracker</title>
-  <link rel="stylesheet" href="style.css?v=2026-11-27T16:38:16Z">
+  <link rel="stylesheet" href="style.css?v=2026-11-27T17:55:47Z">
   <link rel="manifest" href="manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Expenses">
@@ -432,6 +432,11 @@
             <!-- Business 2, piece 6 (company copies): one saved expense or income shared between the company's projects. -->
             <p class="hint" id="entry-psplit-summary" hidden></p>
             <button type="button" class="add-inline" id="entry-psplit-btn" hidden data-i18n="psplit.button">Split between projects</button>
+          </div>
+          <!-- A unit of the chosen project ("Depa 101"; company copies, Units.gs): shown only when that project has units. -->
+          <div id="unit-field" hidden>
+            <label for="entry-unit" data-i18n="field.unit">Unit</label>
+            <select id="entry-unit"></select>
           </div>
 
           </div>
@@ -2595,6 +2600,8 @@
       </div>
       <div class="budget-modal-body">
         <p class="unit-sum" id="unit-sum"></p>
+        <label for="unit-name" data-i18n="sales.unitName">Name</label>
+        <input type="text" id="unit-name" autocomplete="off" maxlength="40">
         <label for="unit-buyer" data-i18n="sales.buyer">Buyer</label>
         <select id="unit-buyer"></select>
         <input type="text" id="unit-buyer-new" hidden data-i18n-placeholder="sales.buyerNamePh" placeholder="Buyer's name">
@@ -2623,7 +2630,7 @@
           <button type="button" class="add-inline" id="unit-share-text" data-i18n="sales.shareText">Share the payments as text</button>
           <button type="button" class="add-inline" id="unit-share-csv" data-i18n="sales.shareCsv">Share the payments as CSV (Excel)</button>
         </div>
-        <button type="button" class="add-inline unit-remove" id="unit-remove" data-i18n="sales.remove">Remove from this project</button>
+        <button type="button" class="add-inline unit-remove" id="unit-remove" data-i18n="sales.remove">Remove this unit</button>
       </div>
     </div>
   </div>
@@ -5068,25 +5075,25 @@
     </div>
   </div>
 
-  <script src="strings.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="i18n.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="tour-scenes.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="signin-link.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="country-guess.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="rate-quotes.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="bank-sample.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="perf-share.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="spotlight.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="receipt-parse.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="receipt-fields.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="in-process.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="bill-split.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="loan-reminder.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="company-invite.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="app.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="statement-sample.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="statement-table.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="statement-parsers.js?v=2026-11-27T16:38:16Z"></script>
-  <script src="statements.js?v=2026-11-27T16:38:16Z"></script>
+  <script src="strings.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="i18n.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="tour-scenes.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="signin-link.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="country-guess.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="rate-quotes.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="bank-sample.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="perf-share.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="spotlight.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="receipt-parse.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="receipt-fields.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="in-process.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="bill-split.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="loan-reminder.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="company-invite.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="app.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="statement-sample.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="statement-table.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="statement-parsers.js?v=2026-11-27T17:55:47Z"></script>
+  <script src="statements.js?v=2026-11-27T17:55:47Z"></script>
 </body>
 </html>

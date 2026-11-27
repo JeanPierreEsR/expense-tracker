@@ -26,8 +26,9 @@ function coUnitKey_(name) {
   return words.join(' ');
 }
 
-// Pure: reads `text` with what this copy knows. ctx = { home, units: [{id, name}], incomeCats: [{id, name}], clients: [{id, name}] }.
-// Returns null (not a company line: read it the usual way), { ask } (a question back), or
+// Pure: reads `text` with what this copy knows. ctx = { home, units: [{id, name, project_id, project_name, company_id}], incomeCats:
+// [{id, name}], clients: [{id, name}] }. Returns null (not a company line: read it the usual way), { ask } / { askUnit } (a question
+// back), or
 // { type, amount, currency, description, unit, category, client, clientNew, unknownUnit }.
 function companyReadLine_(text, ctx) {
   var raw = String(text || '').replace(/\s+/g, ' ').trim();
@@ -108,6 +109,20 @@ function companyReadLine_(text, ctx) {
     var asUnit = nums.find(function (n) { return n !== amountTok && unitByKey[n.digits]; });
     if (asUnit) { unit = unitByKey[asUnit.digits]; asUnit.tok.used = true; unknownUnit = ''; }
   }
+  // The same unit name in two projects (owner, 2026-11-27: each building has its "Depa 101"): a word of one project's name in the line
+  // decides ("depa 101 pinos"); otherwise it asks which project instead of guessing.
+  if (unit) {
+    var twins = (ctx.units || []).filter(function (u) { return coUnitKey_(u.name) === coUnitKey_(unit.name); });
+    if (twins.length > 1) {
+      var wordsOf = function (u) { return coNorm_(u.project_name).split(' ').filter(function (w) { return w.length >= 3 && !CO_FILLER_.test(w); }); };
+      var own = function (u) { return wordsOf(u).filter(function (w) { return !twins.some(function (o) { return o !== u && wordsOf(o).indexOf(w) >= 0; }); }); };
+      var hit = twins.filter(function (u) { var mine = own(u); return toks.some(function (t) { return !t.used && mine.indexOf(coNorm_(t.raw)) >= 0; }); });
+      if (hit.length !== 1) return { askUnit: { unit: unit.name, projects: twins.map(function (u) { return u.project_name; }) } };
+      unit = hit[0];
+      var mine = own(unit);
+      toks.forEach(function (t) { if (!t.used && mine.indexOf(coNorm_(t.raw)) >= 0) t.used = true; });
+    }
+  }
 
   // Concept and client: income only.
   var category = null, client = null, clientNew = '';
@@ -165,11 +180,17 @@ function companyReadLine_(text, ctx) {
   };
 }
 
-// What this copy knows, for companyReadLine_: its tags (units), income categories (in the person's language) and clients.
+// What this copy knows, for companyReadLine_: its units (each with its project, Units.gs), income categories (in the person's language)
+// and clients.
 function companyBotContext_() {
+  var projects = {};
+  getProjectRows_().forEach(function (p) { projects[p.id] = p; });
   return {
     home: homeCurrency_(),
-    units: getAllRows('Tags').filter(function (t) { return String(t.id) !== ANNUAL_TAG_ID; }).map(function (t) { return { id: String(t.id), name: String(t.name) }; }),
+    units: unitsForMeta_().map(function (u) {
+      var p = projects[u.project_id] || {};
+      return { id: u.id, name: u.name, project_id: u.project_id, project_name: String(p.name || ''), company_id: String(p.company_id || '') };
+    }),
     incomeCats: getAllRows('Categories').filter(function (c) { return c.type === 'income' && c.hidden !== 'yes'; })
       .map(function (c) { return { id: String(c.id), name: categoryLabel_(c) }; }),
     clients: getAllRows('Friends').filter(function (f) { return !f.trip_id && friendRoleOf_(f) === 'client'; }).map(function (f) { return { id: String(f.id), name: String(f.name) }; })
