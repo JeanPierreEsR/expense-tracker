@@ -14368,6 +14368,8 @@ function closeDrilldown() {
   document.getElementById("drilldown-menu").hidden = true;
   collapseDrilldownExpand_();
   drilldownBudget = null;
+  drilldownTag_ = null;
+  document.getElementById("drilldown-menu-btn").setAttribute("aria-label", tr("drill.budgetOptions"));
   drilldownProjection = null;
   drilldownProjectionDetail = null;
 }
@@ -14589,9 +14591,11 @@ document.getElementById("drilldown-menu-btn").addEventListener("click", (e) => {
   const del = document.getElementById("drilldown-menu-delete");
   const hist = budgetHistoryOn_();
   // A line icon, never an emoji, in a menu (owner, 2026-11-14): a stop sign to end, a trash can to delete.
-  document.getElementById("drilldown-menu-delete-label").textContent = tr(hist ? "drill.endBudget" : "drill.deleteBudget");
-  document.getElementById("drilldown-menu-delete-ico").innerHTML = lineIcon_(hist ? "stop" : "trash");
-  del.hidden = !!(hist && drilldownBudget && drilldownBudget.ended);
+  const tag = !drilldownBudget && drilldownTag_;
+  document.querySelector("#drilldown-menu-edit [data-i18n]").textContent = tr(tag ? "tagsScreen.rename" : "drill.modifyBudget");
+  document.getElementById("drilldown-menu-delete-label").textContent = tr(tag ? "tagsScreen.delete" : hist ? "drill.endBudget" : "drill.deleteBudget");
+  document.getElementById("drilldown-menu-delete-ico").innerHTML = lineIcon_(!tag && hist ? "stop" : "trash");
+  del.hidden = !tag && !!(hist && drilldownBudget && drilldownBudget.ended);
   menu.hidden = !menu.hidden;
 });
 document.addEventListener("click", (e) => {
@@ -14604,11 +14608,13 @@ document.addEventListener("click", (e) => {
 document.getElementById("drilldown-menu-edit").addEventListener("click", () => {
   document.getElementById("drilldown-menu").hidden = true;
   if (drilldownBudget) openBudgetModal(drilldownBudget);
+  else if (drilldownTag_) openTagModal_(drilldownTag_);
 });
 
 document.getElementById("drilldown-menu-delete").addEventListener("click", () => {
   document.getElementById("drilldown-menu").hidden = true;
   if (drilldownBudget) removeBudget_(drilldownBudget, false, drilldownBudget.name);
+  else if (drilldownTag_) askDeleteTag_(drilldownTag_);
 });
 
 // ---- Budgets ----
@@ -22192,6 +22198,7 @@ let tagCounts_ = null;   // tag id -> entries carrying it; null until the server
 let tagItemCounts_ = {};   // tag id -> Programmed items carrying it (2026-11-16)
 let tagModalTag_ = null;
 const tagsManageOn_ = () => !!(meta && meta.capabilities && meta.capabilities.tagsManage);
+const tagEntriesOn_ = () => !!(meta && meta.capabilities && meta.capabilities.tagEntries);
 const tagsSorted_ = () => ((meta && meta.tags) || []).slice().sort((a, b) =>
   (a.id === "system-annual" ? -1 : b.id === "system-annual" ? 1 : String(a.name).localeCompare(String(b.name))));
 const tagCountText_ = (id) => (tagCounts_ ? tr("categories.entryCount", { n: tagCounts_[id] || 0 }) : "");
@@ -22201,7 +22208,7 @@ function renderTagsList_() {
   const tags = tagsSorted_();
   const manage = tagsManageOn_();
   document.getElementById("tags-fold-count").textContent = tags.length ? tr("tagsScreen.count", { n: tags.length }) : tr("tagsScreen.none");
-  document.querySelector("#tags-fold-body > .hint").textContent = tr(manage ? "tagsScreen.hint" : "tagsScreen.hintOld");
+  document.querySelector("#tags-fold-body > .hint").textContent = tr(tagEntriesOn_() ? "tagsScreen.hintList" : manage ? "tagsScreen.hint" : "tagsScreen.hintOld");
   list.innerHTML = "";
   tags.forEach((t) => {
     const builtIn = t.id === "system-annual";
@@ -22210,7 +22217,10 @@ function renderTagsList_() {
     delKey_(row, "tag:" + t.id);
     const sub = [tagCountText_(t.id), builtIn ? tr("tagsScreen.builtIn") : ""].filter(Boolean).join(" · ");
     row.innerHTML = `<div><div class="recurring-row-name">${escapeHtml(t.name)}</div><div class="recurring-row-sub">${escapeHtml(sub)}</div></div>`;
-    if (manage && !builtIn) row.addEventListener("click", () => openTagModal_(t));
+    // Tapping a tag lists its entries; renaming and deleting are in that list's ⋯ menu (owner, 2026-11-27). An older backend cannot
+    // list one tag's entries: there the tap opens the rename window as before.
+    if (tagEntriesOn_()) row.addEventListener("click", () => openTagDrilldown_(t));
+    else if (manage && !builtIn) row.addEventListener("click", () => openTagModal_(t));
     else row.style.cursor = "default";
     list.appendChild(row);
   });
@@ -22228,6 +22238,7 @@ async function refreshTagsAfterChange_() {
   tagCounts_ = null;
   await loadMeta();
   renderTagsList_();
+  if (drilldownTag_ && currentDrilldown) currentDrilldown.refetch();   // its list: the new name, or closed once the tag is gone
 }
 function openTagModal_(t) {
   tagModalTag_ = t;
@@ -22236,7 +22247,22 @@ function openTagModal_(t) {
   document.getElementById("tag-modal-name").value = t.name;
   document.getElementById("tag-modal-error").textContent = "";
   document.getElementById("tag-modal-count").textContent = tagCountText_(t.id);
+  bringModalToFront_(backdrop);   // above the tag's list when opened from its ⋯ menu
   backdrop.hidden = false;
+}
+// A tag's entries, all dates, newest first, in the shared drill-down; its ⋯ menu renames or deletes the tag (not the built-in Annual).
+let drilldownTag_ = null;
+function openTagDrilldown_(t) {
+  currentDrilldown = { refetch: () => { const fresh = ((meta && meta.tags) || []).find((x) => x.id === t.id); if (fresh) openTagDrilldown_(fresh); else closeDrilldown(); } };
+  drilldownTag_ = t;
+  drilldownBudget = null;
+  drilldownProjection = null;
+  drilldownProjectionDetail = null;
+  ["drilldown-period-prev", "drilldown-period-next", "drilldown-menu", "drilldown-categories", "drilldown-chart", "drilldown-projection-row",
+    "drilldown-projection-actual-row", "drilldown-projection-annual-note", "drilldown-projection-total-row"].forEach((id) => { document.getElementById(id).hidden = true; });
+  document.getElementById("drilldown-menu-btn").hidden = !(tagsManageOn_() && t.id !== "system-annual");
+  document.getElementById("drilldown-menu-btn").setAttribute("aria-label", tr("tagsScreen.options"));
+  openDrilldownWithPayload_({ tagId: t.id }, t.name, tr("tagsScreen.allDates"));
 }
 function closeTagModal_() { document.getElementById("tag-modal-backdrop").hidden = true; tagModalTag_ = null; }
 document.getElementById("tag-modal-close").addEventListener("click", closeTagModal_);
@@ -22257,9 +22283,8 @@ document.getElementById("tag-modal-save").addEventListener("click", () => {
   closeTagModal_();
   saveBehindScreen_(() => callApi("renameTag", { id: t.id, name }), refreshTagsAfterChange_);
 });
-document.getElementById("tag-modal-delete").addEventListener("click", async () => {
-  const t = tagModalTag_;
-  if (!t) return;
+document.getElementById("tag-modal-delete").addEventListener("click", () => { if (tagModalTag_) askDeleteTag_(tagModalTag_); });
+async function askDeleteTag_(t) {
   const n = tagCounts_ ? tagCounts_[t.id] || 0 : null;
   const items = tagItemCounts_[t.id] || 0;
   const ask = (n === 0 ? tr("tagsScreen.deleteAskUnused", { name: t.name }) : tr("tagsScreen.deleteAsk", { name: t.name, n: n == null ? "?" : n }))
@@ -22271,7 +22296,7 @@ document.getElementById("tag-modal-delete").addEventListener("click", async () =
     unmarkDeleting_("tag:" + t.id);
     await refreshTagsAfterChange_();
   });
-});
+}
 document.getElementById("tags-add-btn").addEventListener("click", async () => {
   const name = await askName_(tr("prompt.tagName"));
   if (!name) return;
