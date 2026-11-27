@@ -425,9 +425,17 @@ function stmtNotCharged_(args) {
     var governing = openingForCurrency_(args.openings || [], cur);
     args.asked[e.id] = true;
     items.push({ id: e.id, date: d, description: String(e.description || ''), type: e.type, amount: Number(e.amount), currency: cur,
-      effect: Math.round(eff * 100) / 100, reason: reason, shared: args.locked[e.id] === 'shared',
+      effect: Math.round(eff * 100) / 100, reason: reason, shared: args.locked[e.id] === 'shared', shares: (args.sharesOf || {})[e.id] || undefined,
       counted: !!(governing && entryCountsAfterOpening_(e, governing) && d <= end) });
   });
   items.sort(function (a, b) { return ((b.reason ? 1 : 0) - (a.reason ? 1 : 0)) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0); });
+  // Entries still WAITING in Needs review on this account inside the period that no line shows (testers 2.75.0, Valeria): never offered
+  // here (they count nowhere yet), only counted, so the screen can say to check them before confirming.
+  if (args.waitingOut) (args.pending || []).forEach(function (e) {
+    var d = String(e.date || '').slice(0, 10), cur = e.currency || homeCurrency_();
+    if ((e.type !== 'expense' && e.type !== 'income') || e.payment_method_id !== pm.id || !d || d < start || d > end || !currencies[cur] || explained[e.id] || args.asked[e.id]) return;
+    args.asked[e.id] = true;
+    args.waitingOut.push({ id: e.id, date: d, description: String(e.description || ''), amount: Number(e.amount), currency: cur, type: e.type });
+  });
   return items.slice(0, STMT_NOT_CHARGED_MAX_);
 }
