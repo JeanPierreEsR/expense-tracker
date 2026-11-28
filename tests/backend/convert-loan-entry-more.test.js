@@ -149,3 +149,16 @@ for (const choice of ["keep", "cancel"]) {
     assert.equal(snap(), before);
   });
 }
+
+test("a loan's entry turned into a repayment pays only the loans chosen, when asked (the list in every place, 2026-11-28)", () => {
+  const { rt, pm, ana, bo, lend } = setup();
+  const older = lend(bo, 30);
+  const chosen = rt.api("addLoan", { friend_id: bo.id, direction: "they_owe_me", amount: 40, currency: "PEN", date: "2026-02-01", payment_method_id: pm });
+  const l = rt.api("addLoan", { friend_id: ana.id, direction: "i_owe_them", amount: 50, currency: "PEN", date: "2026-03-01", payment_method_id: pm });
+  const out = rt.api("convertLoanToRepayment", { entry_id: l.transfer_entry_id, friend_id: bo.id, direction: "they_owe_me", amount: 50, currency: "PEN", date: today(),
+    payment_method_id: pm, overpay_pending_ok: true, allocations: [{ loan_id: chosen.id, amount: 40 }], limit: true });
+  const paid = (id) => rt.rows("Settlements").filter((s) => s.loan_id === id).reduce((n, s) => n + Number(s.amount), 0);
+  assert.equal(paid(chosen.id), 40);
+  assert.equal(paid(older.id), 0, "the older loan was not chosen: nothing spills onto it");
+  assert.equal(out.overpaid, 10);
+});

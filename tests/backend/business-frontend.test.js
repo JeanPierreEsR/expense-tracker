@@ -127,7 +127,9 @@ test("Home's \"+\" → Repayment offers the same choice (owner, 2026-11-14): new
   assert.match(html, /<div id="entry-repay-choose" hidden>/);
   // New entries, and (owner, 2026-11-23) an entry being turned into a repayment where the backend takes the choice.
   assert.match(app, /const on = repaymentActive_\(\) && transferKind_\(\) === "repayment" && \(entryFormIsNewEntry_\(\) \|\| entryConvertCanChoose_\(friendId\)\) && !entryOpeningOn_\(\)/);
-  assert.match(app, /if \(!editingEntryId \|\| editingLoanMovement_ \|\| !\(\(meta && meta\.capabilities\) \|\| \{\}\)\.convertAllocations\) return false;/);
+  assert.match(app, /if \(!editingEntryId \|\| !caps\.convertAllocations\) return false;/);
+  // A loan's own entry turned into a repayment gets the list too (owner, 2026-11-28), where the backend passes it on.
+  assert.match(app, /if \(editingLoanMovement_\) return !!caps\.convertLoanAllocations;/);
   assert.match(app, /if \(chosen && chosen\.length\) conversionPayload\.allocations = chosen;/);
   assert.match(app, /resetChoose_\(CHOOSE_ENTRY_, CHOOSE_ENTRY_\.loans\(\)\.length >= 2\);/);
   assert.match(app, /if \(chosen && chosen\.length\) repayPayload\.allocations = chosen;/);

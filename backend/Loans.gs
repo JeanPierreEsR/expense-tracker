@@ -1098,6 +1098,10 @@ function recordRepayment(payload) {
 
   // The person chose which loans this pays (optional): { loan_id, amount } rows. Checked before anything is written.
   var allocations = cleanRepaymentAllocations_(payload.allocations, primary, Number(payload.amount));
+  // "Pay only the selected loans" (owner, 2026-11-28; as reassignRepayment): nothing spills onto the other loans; what the chosen
+  // loans cannot take is the extra (income / expense), as when more than everything owed is paid. Ignored with no loans chosen.
+  var limit = payload.limit === true && allocations.length > 0;
+  if (limit) ensureSettlementsLimitedColumn_();
 
   // Phase 1 — offset opposite-direction debt first, oldest-first on both
   // sides. Skipped when the person chose the loans: they get exactly what was assigned, nothing is netted behind it.
@@ -1129,7 +1133,9 @@ function recordRepayment(payload) {
   // this call was pure phase-1 offsetting (no real money moved either).
   var primaryRemainingAfterPhase1 = 0;
   for (var pri = pi; pri < primaryLeft.length; pri++) primaryRemainingAfterPhase1 += primaryLeft[pri];
-  var appliedAmount = Math.min(Number(payload.amount), primaryRemainingAfterPhase1);
+  var appliedAmount = limit
+    ? Math.round(allocations.reduce(function (n, a) { return n + a.amount; }, 0) * 100) / 100
+    : Math.min(Number(payload.amount), primaryRemainingAfterPhase1);
   var transferEntryId = '';
   if (appliedAmount > 0.004) {
     var repaymentTransferEntry = createTransferEntry_({
@@ -1151,12 +1157,12 @@ function recordRepayment(payload) {
   var cashLeft = Number(payload.amount);
   allocations.forEach(function (a) {
     var idx = primary.findIndex(function (l) { return l.id === a.loan_id; });
-    recordSettlementRow_(a.loan_id, payload.date, a.amount, payload.payment_method_id || '', '', transferEntryId);
+    recordSettlementRow_(a.loan_id, payload.date, a.amount, payload.payment_method_id || '', '', transferEntryId, limit);
     primaryLeft[idx] -= a.amount;
     cashLeft -= a.amount;
     touchedLoanIds[a.loan_id] = true;
   });
-  while (cashLeft > 0.004 && pi < primary.length) {
+  while (!limit && cashLeft > 0.004 && pi < primary.length) {
     var loan = primary[pi];
     var applyAmt = Math.min(cashLeft, primaryLeft[pi]);
     if (applyAmt > 0.004) {
@@ -1487,7 +1493,9 @@ function convertLoanToRepaymentInto_(payload) {
       payment_method_id: payload.payment_method_id,
       description: withoutAutoLoanDescription_(loan, payload.description),   // the old loan's default text is not the repayment's own
       overpay_category_id: payload.overpay_category_id,
-      overpay_pending_ok: payload.overpay_pending_ok
+      overpay_pending_ok: payload.overpay_pending_ok,
+      allocations: payload.allocations,   // the loans chosen, and only those (owner, 2026-11-28: the list in every place)
+      limit: payload.limit
     });
     return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
   } catch (err) {
@@ -1780,7 +1788,8 @@ function convertRepaymentToRepaymentInto_(payload) {
       description: withoutAutoRepaymentDescription_(oldLoan, payload.description),   // the old repayment's default text is not the new one's own
       overpay_category_id: payload.overpay_category_id,
       overpay_pending_ok: payload.overpay_pending_ok,
-      allocations: payload.allocations   // the loans the person chose (Home, owner 2026-11-23); none = oldest first
+      allocations: payload.allocations,   // the loans the person chose (Home, owner 2026-11-23); none = oldest first
+      limit: payload.limit                // only those loans; the rest is the extra (owner, 2026-11-28)
     });
     return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
   } catch (err) {
@@ -1979,7 +1988,8 @@ function convertEntryInto_(payload, kind) {
       description: payload.description,
       overpay_category_id: payload.overpay_category_id,   // recordRepayment books the extra itself
       require_owed: payload.require_owed,                 // Telegram: income with nothing owed stays income
-      allocations: payload.allocations                    // the loans the person chose (Home, owner 2026-11-23); none = oldest first
+      allocations: payload.allocations,                   // the loans the person chose (Home, owner 2026-11-23); none = oldest first
+      limit: payload.limit                                // only those loans; the rest is the extra (owner, 2026-11-28)
     });
     rememberPayeeHabit_(entry, 'repayment', payload);
     return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };

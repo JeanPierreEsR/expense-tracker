@@ -708,6 +708,13 @@
     "review.contextLoanOut.co": { en: " — you lending this to a contact", es: " — le prestas esto a un contacto" },
     "review.repayWrongWay": { en: "{friend} owes you, and this money went out: it doesn't pay back what you owe. If you lent {friend} more, use \"Convert to loan\" instead.", es: "{friend} te debe y este dinero salió: no devuelve lo que tú debes. Si le prestaste más a {friend}, usa \"Convertir en préstamo\"." },
     "review.overpaidIncoming": { en: "Marked as a repayment from {name} — the payment of {cur} {amount} was more than they owed you. The extra is in “Needs review”, waiting for a category.", es: "Se marcó como repago de {name}: el pago de {cur} {amount} fue más de lo que te debía. El extra está en “Por revisar”, esperando una categoría." },
+    "review.limitedExtraIncoming": { en: "Marked as a repayment from {name}, on the loans you chose. The other {cur} {amount} is in “Needs review” as income, waiting for a category.", es: "Se marcó como repago de {name}, en los préstamos que elegiste. Los otros {cur} {amount} están en “Por revisar” como ingreso, esperando una categoría." },
+    "review.limitedExtraOutgoing": { en: "Marked as a repayment to {name}, on the loans you chose. The other {cur} {amount} is in “Needs review” as an expense, waiting for a category.", es: "Se marcó como repago a {name}, en los préstamos que elegiste. Los otros {cur} {amount} están en “Por revisar” como gasto, esperando una categoría." },
+    "repay.limitedRecordedIncome": { en: " The other {cur} {amount}, not on the loans you chose, was recorded as income.", es: " Los otros {cur} {amount}, que no van a los préstamos que elegiste, se registraron como ingreso." },
+    "repay.limitedRecordedExpense": { en: " The other {cur} {amount}, not on the loans you chose, was recorded as an expense.", es: " Los otros {cur} {amount}, que no van a los préstamos que elegiste, se registraron como gasto." },
+    "repay.limitedPendingIncome": { en: " The other {cur} {amount}, not on the loans you chose, is in “Needs review” as income, waiting for a category.", es: " Los otros {cur} {amount}, que no van a los préstamos que elegiste, están en “Por revisar” como ingreso, esperando una categoría." },
+    "repay.limitedPendingExpense": { en: " The other {cur} {amount}, not on the loans you chose, is in “Needs review” as an expense, waiting for a category.", es: " Los otros {cur} {amount}, que no van a los préstamos que elegiste, están en “Por revisar” como gasto, esperando una categoría." },
+    "money.repaidLimited": { en: "Saved. The other {cur} {amount}, not on the loans you chose, is in Needs review to categorise.", es: "Guardado. Los otros {cur} {amount}, que no van a los préstamos que elegiste, están en Por revisar para categorizarlos." },
     "review.overpaidOutgoing": { en: "Marked as a repayment to {name} — the payment of {cur} {amount} was more than they were owed. The extra is in “Needs review”, waiting for a category.", es: "Se marcó como repago a {name}: el pago de {cur} {amount} fue más de lo que se le debía. El extra está en “Por revisar”, esperando una categoría." },
 
     // ---- entries ----
@@ -1698,6 +1705,9 @@
     "recurring.paused": { en: " · Paused", es: " · Pausado" },
     "recurring.ended": { en: " · Ended {date}", es: " · Terminó el {date}" },
     "recurring.ends": { en: " · Ends {date}", es: " · Termina el {date}" },
+    "recurring.fromTag": { en: " · From {name}", es: " · De {name}" },
+    "recModal.payorHint": { en: "Optional. An income from this person counts as this item's payment, even in another category; one from someone else never does.", es: "Opcional. Un ingreso de esta persona cuenta como el pago de este movimiento, aunque esté en otra categoría; uno de otra persona nunca." },
+    "recModal.noPayor": { en: "Anyone", es: "Cualquiera" },
     "recurring.splitTag": { en: " · Split", es: " · Repartido" },
     "recurring.hidePast": { en: "Hide past programmed items ({n})", es: "Ocultar movimientos programados pasados ({n})" },
     "recurring.showPast": { en: "Show past programmed items ({n})", es: "Mostrar movimientos programados pasados ({n})" },

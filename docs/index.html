@@ -218,8 +218,14 @@
               <div id="entry-repay-choose" hidden>
                 <button type="button" class="add-inline" id="entry-repay-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
                 <div id="entry-repay-choose-panel" hidden>
-                  <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
+                  <p class="hint" id="entry-repay-choose-hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
                   <div id="entry-repay-choose-list"></div>
+                  <div class="reassign-limit-box" id="entry-repay-choose-limit-row" hidden>
+                    <label class="reassign-limit-label">
+                      <input type="checkbox" id="entry-repay-choose-limit">
+                      <span data-i18n="reassign.limit">Pay only the selected loans</span>
+                    </label>
+                  </div>
                   <p class="hint" id="entry-repay-choose-summary" aria-live="polite"></p>
                 </div>
               </div>
@@ -3390,8 +3396,14 @@
           <div id="settlement-choose" hidden>
             <button type="button" class="add-inline" id="settlement-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
             <div id="settlement-choose-panel" hidden>
-              <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
+              <p class="hint" id="settlement-choose-hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
               <div id="settlement-choose-list"></div>
+              <div class="reassign-limit-box" id="settlement-choose-limit-row" hidden>
+                <label class="reassign-limit-label">
+                  <input type="checkbox" id="settlement-choose-limit">
+                  <span data-i18n="reassign.limit">Pay only the selected loans</span>
+                </label>
+              </div>
               <p class="hint" id="settlement-choose-summary" aria-live="polite"></p>
             </div>
           </div>
@@ -4033,8 +4045,15 @@
         <div id="review-transfer-choose" hidden>
           <button type="button" class="add-inline" id="review-transfer-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
           <div id="review-transfer-choose-panel" hidden>
-            <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
+            <p class="hint" id="review-transfer-choose-hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
             <div id="review-transfer-choose-list"></div>
+            <!-- "Pay only the selected loans" (owner, 2026-11-28), as in the Repayment history: the rest is the extra, not the other loans. -->
+            <div class="reassign-limit-box" id="review-transfer-choose-limit-row" hidden>
+              <label class="reassign-limit-label">
+                <input type="checkbox" id="review-transfer-choose-limit">
+                <span data-i18n="reassign.limit">Pay only the selected loans</span>
+              </label>
+            </div>
             <p class="hint" id="review-transfer-choose-summary" aria-live="polite"></p>
           </div>
         </div>
@@ -4578,6 +4597,13 @@
         <label data-i18n="field.currency">Currency</label>
         <input type="hidden" id="recurring-currency" value="PEN">
         <div class="currency-chips" id="recurring-currency-chips"></div>
+
+        <!-- Who pays a programmed income (owner, 2026-11-28): an income item only, where the backend has recurringPayor. -->
+        <div id="recurring-payor-field" hidden>
+          <label for="recurring-payor" data-i18n="field.receivedFrom">Received from</label>
+          <select id="recurring-payor"></select>
+          <p class="hint" data-i18n="recModal.payorHint">Optional. An income from this person counts as this item's payment, even in another category; one from someone else never does.</p>
+        </div>
 
         <div id="recurring-variable-field">
           <label class="checkbox-row">
