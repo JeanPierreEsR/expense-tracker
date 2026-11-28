@@ -4501,6 +4501,15 @@ function sendPendingConfirmInBackground_(id) {
     refreshHomeGlance_(true);
     refreshReviewQueue(undefined, true).catch(() => {});
     showToast_(tr("entry.savedToast"));
+    // Split into categories (owner, 2026-11-27): Undo puts it back in Needs review as it arrived, one item with the whole amount.
+    // Not when a part is shared with a friend (the server refuses that Undo, as for any shared entry).
+    const parts = action.parts && action.parts.length ? action.parts : null;
+    if (!followed && parts && !(action.splits || []).length && !parts.some((p) => (p.splits || []).length)) {
+      const f = action.fields || {};
+      const total = Number(f.amount || 0) + parts.reduce((sum, p) => sum + Number(p.amount), 0);
+      const names = [...new Set([f.category_id].concat(parts.map((p) => p.category_id)).filter(Boolean).map(categoryName))].join(" + ");
+      offerUnconfirmUndo_({ id, type: "expense" }, f, [formatAmount(total, f.currency || homeCur(), "−"), names].join(" · "));
+    }
   }).catch((err) => {
     if (isUnreachable_(err)) { showToast_(tr("review.retryToast")); return; }   // no connection: it stays queued and keeps trying
     reopenRefusedConfirm_(id, action, err.message);                              // the server said no: back to the form, with the reason
@@ -8671,9 +8680,9 @@ async function applyReviewAction_(a) {
 // action already applied server-side just no-ops the second time.
 // Undo of a Needs review Confirm (owner, 2026-11-12): "Confirmed: −PEN 12.00 · Restaurants [Undo]" sends it back to waiting.
 // Only a plain expense or income (the server refuses a split one) and only where the backend has unconfirmEntry.
-function offerUnconfirmUndo_(entry, fields) {
+function offerUnconfirmUndo_(entry, fields, whatText) {
   if (!((meta && meta.capabilities) || {}).unconfirmEntry || (entry.type !== "expense" && entry.type !== "income") || isPracticeReviewEntry_(entry)) return;
-  const what = [formatAmount(Number(fields.amount) || 0, entry.currency, entry.type === "income" ? "+" : "−"), fields.category_id ? categoryName(fields.category_id) : ""].filter(Boolean).join(" · ");
+  const what = whatText || [formatAmount(Number(fields.amount) || 0, entry.currency, entry.type === "income" ? "+" : "−"), fields.category_id ? categoryName(fields.category_id) : ""].filter(Boolean).join(" · ");
   showUndoToast_(tr("review.confirmedWhat", { what }), async () => {
     try {
       await callApi("unconfirmEntry", { id: entry.id });

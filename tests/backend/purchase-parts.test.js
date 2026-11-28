@@ -149,9 +149,28 @@ test("Needs review (step 2): a waiting purchase confirmed as a split purchase ke
   assert.equal(part.status, "confirmed");
   assert.equal(part.purchase_id, e.id);
   assert.equal(String(part.payment_method_id), String(main.payment_method_id));
-  // The confirm's Undo is refused: a split purchase never goes back half way.
-  assert.throws(() => t.rt.api("unconfirmEntry", { id: e.id }));
   assert.equal(analyse(t.rt, t.pm, [{ date: "2026-03-10", description: "ONLINE STORE", amount: -160, currency: "PEN" }])[0].entry.id, e.id);
+  // Undo of that confirm: back to ONE waiting item with the whole amount, the other part gone.
+  t.rt.api("unconfirmEntry", { id: e.id });
+  const back = t.row(e.id);
+  assert.equal(back.status, "pending");
+  assert.equal(Number(back.amount), 160);
+  assert.equal(back.purchase_id, "");
+  assert.equal(back.external_id, "mail-123");
+  assert.equal(t.row(partId), undefined);
+});
+
+test("Undo of a split confirm with a part shared with a friend is refused, like any shared entry", () => {
+  const t = setup();
+  const friend = t.rt.api("addFriend", { name: "Parts Friend " + Math.random().toString(36).slice(2, 6) });
+  const e = t.rt.api("createEntry", t.fields({ amount: 160 }));
+  t.rt.run(`setEntryField_(${JSON.stringify(e.id)}, 'status', 'pending'); setEntryField_(${JSON.stringify(e.id)}, 'source', 'email')`);
+  const partId = uuid();
+  t.rt.api("saveEntryAll", { kind: "confirm", id: e.id, fields: { amount: 120, category_id: t.gifts }, splits: [], tag_ids: [],
+    parts: [{ id: partId, category_id: t.shopping, amount: 40, splits: [{ friend_id: friend.id, amount: 20 }] }] });
+  assert.throws(() => t.rt.api("unconfirmEntry", { id: e.id }));
+  assert.equal(t.row(e.id).status, "confirmed");
+  assert.ok(t.row(partId));
 });
 
 test("a bank e-mail of the whole amount is warned about as a possible copy of the split purchase", () => {

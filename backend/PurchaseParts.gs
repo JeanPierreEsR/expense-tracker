@@ -214,3 +214,26 @@ function purchaseStmtSummary_(e, catsById, pmsById) {
     to_account: pmsById[main.to_payment_method_id] ? pmsById[main.to_payment_method_id].nickname : ''
   };
 }
+
+// Undo of a Needs review confirm that split the purchase (owner, 2026-11-27: "it shouldn't be refused"): the purchase goes back
+// to how it arrived — ONE waiting item with the whole amount and the first part's category; the other parts are deleted.
+// A part shared with friends is refused, like the Undo of any shared entry (its friends' debts would have to go too).
+function unconfirmPurchase_(entry) {
+  var pid = purchaseIdOf_(entry);
+  var all = getAllRows('Entries').filter(function (e) { return purchaseIdOf_(e) === pid; });
+  var main = all.filter(function (e) { return String(e.id) === pid; })[0];
+  if (!main || main.source === 'manual') throw new Error(tr_('err.cannotUnconfirm'));
+  var ids = {};
+  all.forEach(function (e) { ids[String(e.id)] = true; });
+  var shared = getAllRows('Entry Splits').some(function (sp) { return ids[String(sp.entry_id)]; }) ||
+    getAllRows('Loans').some(function (l) { return ids[String(l.entry_id)]; });
+  if (shared) throw new Error(tr_('err.cannotUnconfirm'));
+  var total = Math.round(all.reduce(function (sum, e) { return sum + Number(e.amount || 0); }, 0) * 100) / 100;
+  purchaseDeleting_ = true;
+  try {
+    all.forEach(function (e) { if (String(e.id) !== pid) discardEntryWithRepayments_(String(e.id), undefined); });
+  } finally { purchaseDeleting_ = false; }
+  updateRowFields_('Entries', pid, { amount: total, purchase_id: '' });
+  setEntryField_(pid, 'status', 'pending');
+  return { done: true, id: pid };
+}
