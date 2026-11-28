@@ -49,7 +49,10 @@ var HEALS_ = [
   // A construction company copy gets the "Land" category its pack now has (owner, 2026-11-26). Adds one category; nothing else changes.
   { id: 'company-land-category', run: function () { addLandCategoryToConstruction_(); } },
   // The Banco de la Nación (detracciones) account gets a starting balance of 0, so Balances and the month close list it (testers 2.80.0).
-  { id: 'detraction-account-opening', run: function () { healDetractionOpening_(); } }
+  { id: 'detraction-account-opening', run: function () { healDetractionOpening_(); } },
+  // The Sheet's tabs in six groups, coloured; the app's logs hidden; header rows frozen; an empty "Sheet1" removed (owner, 2026-11-28,
+  // every copy). Order, colour and hiding only: no name, column or cell changes (SheetTabs.gs).
+  { id: 'tidy-sheet-tabs', owner: true, run: function () { tidySheetTabs_(); } }
 ];
 
 function healMailboxAddressFromToLine_() {

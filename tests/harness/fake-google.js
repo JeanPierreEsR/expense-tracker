@@ -140,6 +140,11 @@ class FakeSheet {
     this.extraRows = 0;
   }
   getFrozenRows() { return this.frozen; }
+  getTabColor() { return this.tabColor || null; }
+  setTabColor(c) { this.tabColor = c || null; return this; }
+  isSheetHidden() { return !!this.hidden; }
+  hideSheet() { this.hidden = true; return this; }
+  showSheet() { this.hidden = false; return this; }
   insertRowAfter() { this.extraRows++; }
   _checkDelete(n) {
     if (this.tightRows && this.rows.length + this.extraRows - n <= this.frozen) {
@@ -222,6 +227,14 @@ class FakeSpreadsheet {
   }
   deleteSheet(s) { this.sheets.delete(s.getName()); }
   getSheets() { return [...this.sheets.values()]; }
+  // Tab order (SheetTabs.gs): the Map keeps insertion order, so a move rebuilds it.
+  setActiveSheet(s) { this.active = s; return s; }
+  getActiveSheet() { return this.active || this.getSheets()[0] || null; }
+  moveActiveSheet(pos) {
+    const list = this.getSheets().filter((s) => s !== this.active);
+    list.splice(pos - 1, 0, this.active);
+    this.sheets = new Map(list.map((s) => [s.getName(), s]));
+  }
 }
 
 // ---- Everything else -----------------------------------------------------------
