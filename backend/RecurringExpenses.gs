@@ -1170,7 +1170,8 @@ function deleteRecurringExpense(id) {
 function pausedProgrammedForApp_() {
   if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Recurring Expenses')) return [];
   var categoryById = rowsById_(getAllRowsCached_('Categories'));
-  return getRecurringExpenseRows_().filter(function (r) { return String(r.active) === 'false'; }).map(function (r) {
+  // Only the tab itself (2026-11-28): the full Programmed list (every entry, splits, estimates) took 1.8 s of each start for this check.
+  return getAllRows('Recurring Expenses').filter(function (r) { return r.id && String(r.active) === 'false'; }).map(function (r) {
     var cat = categoryById[r.category_id];
     return {
       id: String(r.id), description: r.description || '', category_name: cat ? categoryLabel_(cat) : tr_('label.unknownCategory'),

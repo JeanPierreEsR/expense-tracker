@@ -22,12 +22,14 @@ function requireCompanyCopy_() {
   if (!isCompanyCopy_()) throw new Error(tr_('partner.onlyCompany'));
 }
 
+// Partners exist only on company copies (every write goes through requireCompanyCopy_), so elsewhere these tabs are empty and are not
+// read at all (2026-11-28: Needs review and the start paid ~0.5-1 s on the owner's copy reading the two empty tabs).
 function contributionRows_() {
-  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Contributions')) return [];
+  if (!isCompanyCopy_() || !SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Contributions')) return [];
   return getAllRows('Contributions');
 }
 function distributionRows_() {
-  if (!SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Distributions')) return [];
+  if (!isCompanyCopy_() || !SpreadsheetApp.getActiveSpreadsheet().getSheetByName('Distributions')) return [];
   return getAllRows('Distributions');
 }
 

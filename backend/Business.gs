@@ -72,10 +72,23 @@ function requireBusiness_() {
   throw err;
 }
 
+// Speed (2026-11-28, owner's real start: this check took 3.2 s of the 13 s, every start): once a copy's business tabs and columns are
+// all made, it is remembered (Script Property BUSINESS_SETUP_DONE = the signature below). Afterwards one look at the tab names is
+// enough; a tab missing (deleted by hand) makes the full check run again. BUMP BUSINESS_SETUP_V_ when adding a line below.
+var BUSINESS_SETUP_V_ = 1;
+var BUSINESS_SETUP_PROPERTY_ = 'BUSINESS_SETUP_DONE';
+function businessSetupSignature_() { return BUSINESS_SETUP_V_ + ':' + Object.keys(BUSINESS_TABLES_).join('|'); }
+
 function ensureBusinessSheets_() {
   if (businessEnsured_) return;
   businessEnsured_ = true;
   var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var props = PropertiesService.getScriptProperties();
+  if (props.getProperty(BUSINESS_SETUP_PROPERTY_) === businessSetupSignature_()) {
+    var have = {};
+    ss.getSheets().forEach(function (sh) { have[sh.getName()] = true; });
+    if (Object.keys(BUSINESS_TABLES_).every(function (n) { return have[n]; })) return;
+  }
   Object.keys(BUSINESS_TABLES_).forEach(function (name) {
     if (ss.getSheetByName(name)) return;
     var sheet = ss.insertSheet(name);
@@ -103,6 +116,7 @@ function ensureBusinessSheets_() {
   ensureColumn_('Loans', 'project_id');
   ensureColumn_('Loans', 'company_id');     // Business 2, piece 3: a loan to the company with no project
   ensureColumn_('Projects', 'client_id');   // the person who repays this project's reimbursable costs (optional)
+  props.setProperty(BUSINESS_SETUP_PROPERTY_, businessSetupSignature_());
 }
 
 // Adds one column to an existing tab (a text one is formatted as plain text so a number-like value keeps its form).
