@@ -7488,6 +7488,7 @@ function syncCancelNewEntryButton_() {
 // One-time. An entry that already belongs to a Programmed item shows a line saying so instead of the button.
 let repeatFreq_ = null;              // null = closed (does not repeat)
 let editingEntryRecurringId_ = "";
+let editingEntryRecurringMonth_ = "";
 function resetRepeat_() {
   repeatFreq_ = null;
   document.getElementById("repeat-detail").hidden = true;
@@ -7501,8 +7502,44 @@ function setRepeatFreq_(freq, quiet) {
   document.querySelectorAll("#repeat-tabs .type-tab").forEach((t) => t.classList.toggle("active", t.dataset.frequency === freq));
   document.getElementById("repeat-custom").hidden = freq !== "custom";
 }
+// An entry that pays a Programmed item says which one, with "Remove link" (owner, 2026-11-28: one linked by mistake could not be
+// taken off anywhere in the app). The name comes from the Programmed list on the phone, or is fetched once.
+let paidLinkNames_ = null;
+const recurringNamesSeen_ = {};   // names of the items "Programmed this month" showed
+function updatePaidLinkField_() {
+  const box = document.getElementById("entry-paid-link");
+  const id = editingEntryId ? editingEntryRecurringId_ : "";
+  box.hidden = !id;
+  if (!id) return;
+  const known = (recurringItems_ || []).find((r) => r.id === id);
+  const name = known ? (known.description || known.category_name) : recurringNamesSeen_[id] || (paidLinkNames_ && paidLinkNames_[id]);
+  document.getElementById("entry-paid-link-text").textContent = name ? tr("paid.linkedTo", { name }) : tr("paid.linkedToAny");
+  if (!name && !paidLinkNames_) {
+    paidLinkNames_ = {};
+    callApi("listRecurringExpenses").then((items) => {
+      (items || []).forEach((r) => { paidLinkNames_[r.id] = r.description || r.category_name; });
+      updatePaidLinkField_();
+    }).catch(() => { paidLinkNames_ = null; });
+  }
+}
+document.getElementById("entry-paid-unlink-btn").addEventListener("click", () => {
+  const entryId = editingEntryId, recurringId = editingEntryRecurringId_, month = editingEntryRecurringMonth_;
+  if (!entryId || !recurringId) return;
+  editingEntryRecurringId_ = "";
+  updateRepeatField_();
+  saveBehindScreen_(async () => {
+    await callApi("linkEntryToRecurring", { entryId, recurringExpenseId: "" });
+    showUndoToast_(tr("paid.unlinked"), async () => {
+      await callApi("linkEntryToRecurring", { entryId, recurringExpenseId: recurringId, month, addTags: false });
+      showToast_(tr("entry.undone"));
+      refreshExpectedRecurring().catch(() => {});
+      refreshEntryList().catch(() => {});
+    }, "paid-unlink");
+  }, async () => { refreshExpectedRecurring().catch(() => {}); await refreshEntryList().catch(() => {}); refreshHomeGlance_(true); });
+});
 function updateRepeatField_() {
   updateRefundField_();
+  updatePaidLinkField_();
   updateRefundOfField_();
   const field = document.getElementById("repeat-field");
   const can = !!(meta && meta.capabilities && meta.capabilities.entryRepeat);
@@ -7515,7 +7552,7 @@ function updateRepeatField_() {
   const plan = confirmingPendingId ? reviewPlanFor_(confirmingPendingId) : null;
   const linked = !!(editingEntryId && editingEntryRecurringId_) || !!plan;
   const linkedEl = document.getElementById("repeat-linked");
-  linkedEl.hidden = !linked;
+  linkedEl.hidden = !linked || !plan;   // (an entry already linked says so in its "Pays …" line, with Remove link)
   if (linked) linkedEl.textContent = plan ? tr("repeat.planned", { name: plan.description || tr("plan.thePlanned"), month: paceMonthName_(plan.month, true) }) : tr("repeat.linked");
   document.getElementById("repeat-open-btn").hidden = linked || !!repeatFreq_;
   document.getElementById("repeat-detail").hidden = linked || !repeatFreq_;
@@ -8028,6 +8065,7 @@ async function startEditEntry(entry) {
   editingEntryWasSplittable = entry.type === "expense";
   editingEntryOriginalType = entry.type;
   editingEntryRecurringId_ = entry.recurring_expense_id || "";
+  editingEntryRecurringMonth_ = entry.recurring_month || "";
   editingRefundEntry_ = entry;   // its "Refunded … of …" line and Refund… button (Refunds)
   resetRepeat_();
   // A cash loan's own money movement: switching it to Expense / Income converts the loan (convertLoanToEntry).
@@ -8229,7 +8267,7 @@ function exitEditMode() {
   editingEntryOriginalDate_ = null;
   editingEntryWasSplittable = false;
   editingEntryOriginalType = null;
-  editingEntryRecurringId_ = "";
+  editingEntryRecurringId_ = ""; editingEntryRecurringMonth_ = "";
   editingRefundEntry_ = null;
   updateRefundField_();   // a new entry never shows Refund…
   resetRepeat_();
@@ -29794,6 +29832,7 @@ async function refreshExpectedRecurring(prefetchedGroups) {
   document.getElementById("expected-income-toggle").hidden = !groups.some((g) => g.type === "income");
   syncIncomeToggles_();
 
+  groups.forEach((g) => g.items.forEach((i) => { if (!i.refund && !i.waiting && i.id) recurringNamesSeen_[i.id] = i.description || i.category_name; }));   // (an entry's "Pays …" line)
   groups.forEach((g) => {
     const group = document.createElement("div");
     group.className = "expected-recurring-group";
@@ -29964,6 +30003,17 @@ function startPaymentEntryForItem_(item, currency, isIncome, fullAmount, savedSp
   }
 }
 
+const PAID_ROW_SHIELD_MS_ = 600;
+// Takes an entry off the Programmed item it pays (the Undo after "Mark as paid…", and "Remove link" in the entry's form). `extra`
+// takes back what the link added: { removeTagIds, clearTrip }.
+async function unlinkFromRecurring_(entryId, extra) {
+  await callApi("linkEntryToRecurring", Object.assign({ entryId, recurringExpenseId: "" }, extra || {}));
+  showToast_(tr("paid.unlinked"));
+  refreshExpectedRecurring().catch(() => {});
+  refreshEntryList().catch(() => {});
+  refreshHomeGlance_(true);
+}
+
 // "Mark as paid…": a manual override for when automatic matching (same
 // category and currency, about the same amount, within a few days) missed the
 // real payment. Pick the entry that paid it; automatic matching stays on.
@@ -30000,8 +30050,13 @@ async function openPaidPicker_(item, currency, isIncome) {
   };
   bringModalToFront_(backdrop);
   backdrop.hidden = false;
+  const ticket = backdrop.dataset.ticket = String(Date.now());   // (a later opening wins: an older list never lands in it)
   try {
     const entries = await callApi("listEntriesForRecurringMonth", { id: item.id, month: todayLocalISO().slice(0, 7) });
+    if (backdrop.dataset.ticket !== ticket || backdrop.hidden) return;
+    // The list arrives under a finger that was going for "Record the payment…" (owner, 2026-11-28: a random entry became the
+    // Salary): the window already has its full height (style.css), and its rows ignore taps for a moment after they appear.
+    const drawnAt = Date.now();
     list.innerHTML = "";
     document.getElementById("paid-picker-empty").hidden = entries.length > 0;
     const topCount = entries.filter((e) => e.is_top).length;
@@ -30024,8 +30079,15 @@ async function openPaidPicker_(item, currency, isIncome) {
           <div class="link-candidate-desc">${escapeHtml(e.description || e.category_name || tr("review.noDescription"))}</div>
         </div>`;
       row.addEventListener("click", () => {
+        if (Date.now() - drawnAt < PAID_ROW_SHIELD_MS_) return;
         backdrop.hidden = true;
-        saveBehindScreen_(() => callApi("linkEntryToRecurring", { entryId: e.id, recurringExpenseId: item.id }), () => refreshExpectedRecurring());
+        saveBehindScreen_(async () => {
+          const out = (await callApi("linkEntryToRecurring", { entryId: e.id, recurringExpenseId: item.id })) || {};
+          if (e.linked_here) return;   // (it already paid this item: nothing to take back)
+          const what = e.description || e.category_name || tr("review.noDescription");
+          showUndoToast_(tr("paid.linkedUndo", { entry: what, name: item.description || item.category_name }),
+            () => unlinkFromRecurring_(e.id, { removeTagIds: out.tagsAdded || [], clearTrip: !!out.tripSet }), "paid-link");
+        }, () => refreshExpectedRecurring());
       });
       list.appendChild(row);
     });

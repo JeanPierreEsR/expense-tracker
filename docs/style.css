@@ -4541,3 +4541,7 @@ body.company-demo #more-signout-btn { display: none; }
 .more-demo-card { border: 1px solid var(--warn-border); background: var(--warn-bg-soft); }
 .more-demo-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
 .more-demo-actions .add-inline, .more-demo-actions button.primary + button { margin: 0; }
+
+/* "Mark as paid…" opens at its full height (owner, 2026-11-28): a sheet sits at the bottom of the screen, so the list arriving
+   later grew it upward and moved "Record the payment…" away from the finger, which then picked an entry. */
+#paid-picker-modal-backdrop .currency-modal { height: 75vh; height: 75dvh; box-sizing: border-box; }

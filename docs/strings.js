@@ -2253,6 +2253,11 @@
     "paid.mostSimilar": { en: "Most similar", es: "Más parecidos" },
     "paid.allMonth": { en: "All of the month, by date", es: "Todo el mes, por fecha" },
     "paid.loadFailed": { en: "Couldn't load entries: {error}", es: "No se pudieron cargar los movimientos: {error}" },
+    "paid.linkedUndo": { en: "“{entry}” is now the payment of “{name}”.", es: "“{entry}” ahora es el pago de “{name}”." },
+    "paid.unlinked": { en: "It is no longer the payment of the Programmed item.", es: "Ya no es el pago del movimiento programado." },
+    "paid.linkedTo": { en: "This entry is the payment of the Programmed item “{name}”.", es: "Este movimiento es el pago del movimiento programado “{name}”." },
+    "paid.linkedToAny": { en: "This entry is the payment of a Programmed item.", es: "Este movimiento es el pago de un movimiento programado." },
+    "paid.unlinkBtn": { en: "Remove link", es: "Quitar el emparejamiento" },
 
     // ---- forgive ----
     "forgive.entryLocked": { en: "This entry records a forgiven debt, so its amount and currency can't be changed. Delete it to undo the forgiveness, then forgive the amount you mean.", es: "Este movimiento registra una deuda perdonada, así que no se puede cambiar su monto ni su moneda. Elimínalo para deshacer el perdón y luego perdona el monto que quieras." },
