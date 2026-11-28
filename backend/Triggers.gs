@@ -35,6 +35,7 @@ function runAutomation() {
   }
   if (featureOn_('gmail')) runAutomationStep_('statement inbox', failures, function () { scanStatementInbox_(); retryStatementInboxNudges_(); });
   else runAutomationStep_('statement inbox', failures, retryStatementInboxNudges_);
+  runAutomationStep_('sheet tabs tidy', failures, tidySheetTabsInBackground_);   // the one-time tidy, a minute a run until done (SheetTabs.gs)
 
   if (emailResults && (emailResults.unparsed || emailResults.errors)) {
     failures.push('emails: ' + emailResults.unparsed + ' could not be read'

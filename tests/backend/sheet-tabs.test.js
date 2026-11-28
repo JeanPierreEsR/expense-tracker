@@ -49,6 +49,52 @@ test("the full tidy: groups in order, own tab last and untouched, logs hidden, h
   assert.equal(plain(rt.run("tidySheetTabs_()")).moved, 0, "running it again changes nothing");
 });
 
+test("done in pieces: each call stops at its time budget and the next carries on, ending exactly like the one-go tidy", () => {
+  const rt = messy();
+  const oneGo = messy();
+  oneGo.run("tidySheetTabs_()");
+  rt.run("var __clock = 0; Date.now = function () { return (__clock += 300); };");   // every step costs 0.3 s
+  let calls = 0, r;
+  do { r = plain(rt.run("tidySheetTabs_(1000)")); calls++; } while (!r.finished && calls < 200);
+  assert.ok(r.finished);
+  assert.ok(calls > 3, "it took several pieces (" + calls + ")");
+  assert.deepEqual(names(rt), names(oneGo));
+  assert.equal(sheet(rt, "Sessions").isSheetHidden(), true);
+  assert.equal(sheet(rt, "Friends").getTabColor(), "#4285f4");
+});
+
+test("another call already at it: this one does nothing", () => {
+  const rt = messy();
+  const before = names(rt);
+  rt.svc.props.set("SHEET_TABS_TIDY_BUSY_AT", String(Date.now()));
+  assert.equal(plain(rt.run("tidySheetTabs_(1000)")).finished, false);
+  assert.deepEqual(names(rt), before);
+});
+
+test("a copy with the timer: the app open does nothing, the timer tidies and marks the heal done", () => {
+  const rt = messy();
+  const before = names(rt);
+  assert.equal(plain(rt.run("tidySheetTabsAtOpen_()")), false);
+  assert.deepEqual(names(rt), before, "the app open never waits for the tidy");
+  rt.run("runHealsOnce_()");
+  assert.equal(plain(rt.run("healIsDone_('tidy-sheet-tabs')")), false);
+  plain(rt.run("tidySheetTabsInBackground_()"));
+  assert.equal(names(rt)[0], "Entries");
+  assert.equal(plain(rt.run("healIsDone_('tidy-sheet-tabs')")), true);
+  assert.equal(plain(rt.run("tidySheetTabsInBackground_()")), null, "nothing more once done");
+});
+
+test("a copy without the timer: each app open does a short piece until it is finished", () => {
+  const rt = messy();
+  rt.svc.props.set("FEATURES", "base");
+  rt.run("var __clock = 0; Date.now = function () { return (__clock += 400); };");
+  let opens = 0;
+  while (!plain(rt.run("healIsDone_('tidy-sheet-tabs')")) && opens < 200) { rt.run("runHealsOnce_()"); opens++; }
+  assert.ok(opens > 1, "spread over several opens (" + opens + ")");
+  assert.equal(names(rt)[0], "Entries");
+  assert.equal(sheet(rt, "Sessions").isSheetHidden(), true);
+});
+
 test("a Sheet1 with something in it is kept", () => {
   const { rt } = freshApp({ small: true });
   rt.svc.ss.insertSheet("Sheet1").appendRow(["x"]);
