@@ -185,6 +185,10 @@ function buildEntriesCsv_(opts) {
   var business = businessOn_();
   var headers = EXPORT_CSV_HEADERS_.slice();
   if (business) headers.splice(headers.indexOf('trip') + 1, 0, 'company', 'project', 'igv');
+  // Split by category (plan step 3): one more column, only when the file holds a split purchase, so other files are exactly what
+  // they were. Its value is the id of the purchase's first part, the same on every part of it (that row's own id says which).
+  var purchases = entries.some(function (e) { return e.purchase_id; });
+  if (purchases) headers.push('purchase');
   var companiesById = business ? rowsById_(getCompanyRows_()) : {};
   var projectsById = business ? rowsById_(getProjectRows_()) : {};
   var lines = [headers.map(function (h) { return csvCell_(tr_('export.h.' + h, { home: homeCurrency_() })); }).join(',')];
@@ -239,6 +243,7 @@ function buildEntriesCsv_(opts) {
         csvCell_(project ? project.name : ''),
         Number(e.igv_amount) > 0 ? exportMoney_(Number(e.igv_amount)) : '');   // the IGV inside the amount, in the entry's currency
     }
+    if (purchases) row.push(csvCell_(e.purchase_id || ''));
     lines.push(row.join(','));
   });
   return { text: lines.join('\r\n') + '\r\n', rows: entries.length };

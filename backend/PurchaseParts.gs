@@ -17,6 +17,7 @@
 var PURCHASE_SHARED_FIELDS_ = ['date', 'currency', 'description', 'paid_by', 'payment_method_id', 'trip_id', 'company_id', 'project_id'];
 var PURCHASE_ID_RE_ = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 var purchaseDeleting_ = false;   // set while a purchase deletes its own parts, so each part does not delete the others again
+var purchaseSyncing_ = false;    // set while the parts are written together, so each write does not copy itself to the others again
 
 function purchaseIdOf_(entry) {
   return entry ? String(entry.purchase_id || '') : '';
@@ -38,7 +39,8 @@ function purchasePartsBlock_(main) {
   if (main.status !== 'confirmed') return tr_('parts.notThisOne');
   var links = getEntryRepaymentLinks({ id: main.id });
   if (links && (links.loan || links.forgiveness || links.repayment || links.repaymentExtra)) return tr_('parts.notThisOne');
-  if (purchaseRefundSummary_(main.id)) return tr_('parts.notThisOne');
+  // A plain purchase that already has refunds is not split now (step 3 refunds ONE part of a purchase already split).
+  if (!purchaseIdOf_(main) && purchaseRefundSummary_(main.id)) return tr_('parts.notThisOne');
   return '';
 }
 
@@ -78,6 +80,15 @@ function saveEntryParts_(mainId, parts, tagIds) {
   var tags = tagIds;
   if (tags === undefined) tags = getEntryTags({ entryId: mainId });
   var kept = {};
+  // A part with refunds (plan step 3) is never dropped, nor made smaller than what came back on it: checked before any write.
+  var sentIds = {};
+  clean.forEach(function (p) { sentIds[p.id] = true; });
+  before.forEach(function (e) {
+    if (!sentIds[String(e.id)] && purchaseRefundSummary_(String(e.id))) throw new Error(tr_('parts.refundedPart'));
+  });
+  clean.forEach(function (p) { if (beforeIds[p.id]) refundEditGuard_(p.id, { amount: p.amount }); });
+  purchaseSyncing_ = true;
+  try {
   clean.forEach(function (p) {
     if (beforeIds[p.id]) {
       updateEntryFields(p.id, Object.assign({}, shared, { category_id: p.category_id, amount: p.amount }));
@@ -90,6 +101,7 @@ function saveEntryParts_(mainId, parts, tagIds) {
     saveEntrySplits(p.id, p.splits);   // always: a part a friend paid owes them its own share even with no split
     kept[p.id] = true;
   });
+  } finally { purchaseSyncing_ = false; }
   before.forEach(function (e) {
     if (kept[String(e.id)]) return;
     purchaseDeleting_ = true;
@@ -165,9 +177,11 @@ function getPurchaseParts(payload) {
   getAllRows('Entry Splits').forEach(function (s) {
     (splits[s.entry_id] = splits[s.entry_id] || []).push({ friend_id: s.friend_id, amount: Number(s.amount) });
   });
-  var parts = getAllRows('Entries').filter(function (e) { return purchaseIdOf_(e) === pid; })
+  var rows = getAllRows('Entries'), loans = getAllRows('Loans');
+  var parts = rows.filter(function (e) { return purchaseIdOf_(e) === pid; })
     .sort(function (a, b) { return (String(a.id) === pid ? -1 : 0) - (String(b.id) === pid ? -1 : 0); })
-    .map(function (e) { return { id: String(e.id), category_id: String(e.category_id || ''), amount: Number(e.amount), splits: splits[e.id] || [] }; });
+    .map(function (e) { return { id: String(e.id), category_id: String(e.category_id || ''), amount: Number(e.amount), splits: splits[e.id] || [],
+      refunded: sumParts_(refundedParts_(String(e.id), rows, loans)) }; });   // what came back on each part (Refunds.gs)
   return { purchase_id: pid, parts: parts };
 }
 
@@ -228,6 +242,8 @@ function unconfirmPurchase_(entry) {
   var ids = {};
   all.forEach(function (e) { ids[String(e.id)] = true; });
   var loans = getAllRows('Loans').filter(function (l) { return l.origin === 'entry' && ids[String(l.entry_id)]; });
+  // A refund recorded on a part is real money back: Undo refuses, like a friend's repayment (delete the purchase instead).
+  if (all.some(function (e) { return purchaseRefundSummary_(String(e.id)); })) throw new Error(tr_('parts.undoRefunded'));
   if (loans.length) {
     ensureSettlementsOffsetColumn_();
     var loanIds = {};
@@ -245,4 +261,48 @@ function unconfirmPurchase_(entry) {
   updateRowFields_('Entries', pid, { amount: total, purchase_id: '' });
   setEntryField_(pid, 'status', 'pending');
   return { done: true, id: pid };
+}
+
+// One part changed from anywhere but the purchase's own save (a bot reply, Tidy my history, Home's bulk edits): what every part
+// shares follows on the others, so the purchase stays one payment (plan step 3; step 1 left this open). A part (not the first)
+// that becomes something other than an expense leaves the purchase; a purchase left with one part is a plain entry again. The
+// first part changing type is the purchase's own form (it sends no parts, and the others go there).
+function syncPurchaseShared_(entryId, fields) {
+  if (purchaseSyncing_ || !fields) return;
+  var entry = getEntryById_(entryId);
+  var pid = purchaseIdOf_(entry);
+  if (!pid) return;
+  purchaseSyncing_ = true;
+  try {
+    if (entry.type !== 'expense') {
+      if (String(entryId) === pid) return;
+      updateRowFields_('Entries', entryId, { purchase_id: '' });
+      var rest = getAllRows('Entries').filter(function (e) { return purchaseIdOf_(e) === pid; });
+      if (rest.length === 1) updateRowFields_('Entries', String(rest[0].id), { purchase_id: '' });
+      return;
+    }
+    var shared = {};
+    PURCHASE_SHARED_FIELDS_.forEach(function (k) { if (fields[k] !== undefined) shared[k] = entry[k] === null || entry[k] === undefined ? '' : entry[k]; });
+    if (!Object.keys(shared).length) return;
+    purchaseSiblings_(entry).forEach(function (s) {
+      var differs = Object.keys(shared).some(function (k) { return String(s[k] == null ? '' : s[k]) !== String(shared[k]); });
+      if (differs) updateEntryFields(String(s.id), shared);
+    });
+  } finally { purchaseSyncing_ = false; }
+}
+
+// A bot's card for a split purchase: the whole amount and each part ("Gifts 120.00 · Shopping 40.00"), so a reply is understood
+// as being about the purchase. Null for a plain entry.
+function purchaseBotLines_(entry) {
+  var pid = purchaseIdOf_(entry);
+  if (!pid) return null;
+  var parts = getAllRows('Entries').filter(function (e) { return purchaseIdOf_(e) === pid; });
+  if (parts.length < 2) return null;
+  parts.sort(function (a, b) { return (String(a.id) === pid ? -1 : 0) - (String(b.id) === pid ? -1 : 0); });
+  var cats = rowsById_(getAllRows('Categories'));
+  var total = Math.round(parts.reduce(function (sum, e) { return sum + Number(e.amount || 0); }, 0) * 100) / 100;
+  return {
+    amount: entry.currency + ' ' + moneyFmt_(total),
+    parts: tr_('bot.partsLine', { parts: parts.map(function (e) { return (cats[e.category_id] ? categoryLabel_(cats[e.category_id]) : '?') + ' ' + moneyFmt_(e.amount); }).join(' · ') })
+  };
 }

@@ -2109,6 +2109,7 @@ function updateEntryFields(entryId, fields) {
   // Business pack: the debts this entry made follow its project.
   if (fields && fields.project_id !== undefined) syncEntryLoanProject_(entryId);
   dropProjectSplitIfBroken_(entryId, fields);   // a split that no longer adds up goes (ProjectSplits.gs)
+  syncPurchaseShared_(entryId, fields);   // a split purchase's other parts follow its date, account… (PurchaseParts.gs)
 
   return getEntryById_(entryId);
 }
