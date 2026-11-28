@@ -891,6 +891,7 @@ function accountLastUsed_() {
   if (c.src === searchIndex && c.n === rows.length) return c.map;
   const map = {};
   rows.forEach((e) => {
+    if (e.detraction_of) return;   // the app's own move to the Banco de la Nación is not a use
     const when = String(e.date || "") + "|" + String(e.created_at || "");
     [e.payment_method_id, e.to_payment_method_id].forEach((id) => { if (id && (!map[id] || when > map[id])) map[id] = when; });
   });
@@ -898,7 +899,8 @@ function accountLastUsed_() {
   return map;
 }
 function accountShortList_(sel) {
-  personShortList_(sel, { lastUsed: (id) => accountLastUsed_()[id] || "", title: () => tr("friendPick.account"), noneKey: "friendPick.noneThing" });
+  // The Banco de la Nación account (detracciones) always comes after the others (" " sorts above "", below any date).
+  personShortList_(sel, { lastUsed: (id) => isDetractionAccount_(id) ? "" : accountLastUsed_()[id] || " ", title: () => tr("friendPick.account"), noneKey: "friendPick.noneThing" });
 }
 // Loans and repayments never START on a credit card, even the most used account (owner, 2026-11-23): the money of a loan or a
 // repayment moves through a bank account, a wallet or cash. The most recently used account that is not a card is picked instead
@@ -909,7 +911,7 @@ function pmIsCreditCard_(id) {
 }
 function nonCardAccount_(sel) {
   const ids = (sel._personShort && sel._personShort.people ? sel._personShort.people.map((p) => p.id) : [...sel.options].map((o) => o.value))
-    .filter((v) => v && !v.startsWith("__") && !pmIsCreditCard_(v));
+    .filter((v) => v && !v.startsWith("__") && !pmIsCreditCard_(v) && !isDetractionAccount_(v));
   const used = accountLastUsed_();
   return ids.map((id, i) => ({ id, i, when: used[id] || "" }))
     .sort((a, b) => (a.when > b.when ? -1 : a.when < b.when ? 1 : a.i - b.i))
@@ -1858,6 +1860,7 @@ function syncTextVariant_() {
   I18n.setVariant(want);
   const affected = (key) => (window.STRINGS[key + ".co"] !== undefined) && (want === "co" || was === "co");
   document.querySelectorAll("[data-i18n]").forEach((el) => { const k = el.getAttribute("data-i18n"); if (affected(k)) el.textContent = tr(k); });
+  if (typeof sortMoreGroupsAz_ === "function") sortMoreGroupsAz_();
   ["placeholder", "title", "aria-label"].forEach((attr) => {
     document.querySelectorAll(`[data-i18n-${attr}]`).forEach((el) => { const k = el.getAttribute(`data-i18n-${attr}`); if (affected(k)) el.setAttribute(attr, tr(k)); });
   });
@@ -1868,6 +1871,9 @@ async function loadMeta(prefetchedMeta, skipFormPopulate) {
   syncPairWithBackend_();
   // A tag row the server holds twice (a new copy's first calls once both added "Annual", 2026-11-26) shows once.
   if (Array.isArray(meta.tags)) { const seen = new Set(); meta.tags = meta.tags.filter((t) => !seen.has(t.id) && seen.add(t.id)); }
+  // A company copy has no "Annual" tag to pick (owner, 2026-11-27; testers 2.80.0, Lucho: a personal habit in a company's forms). Nothing
+  // is deleted: entries that carry it keep it.
+  if (Array.isArray(meta.tags) && companyCopyOn_()) meta.tags = meta.tags.filter((t) => t.id !== "system-annual");
   if (!meta.fromCache_) { metaReadAt_ = Date.now(); renderPullUpdateHint_(); }   // the server was really read: a "pull down after updating" bar is done
   (meta.categories || []).forEach(cleanCategoryLook_);
   refreshTelegramFields_();
@@ -2289,6 +2295,7 @@ function tagLastUsed_() {
   if (c.src === searchIndex && c.n === rows.length) return c.map;
   const map = {};
   rows.forEach((e) => {
+    if (e.detraction_of) return;   // the app's own move to the Banco de la Nación is not a use
     const when = String(e.date || "") + "|" + String(e.created_at || "");
     (e.tagIds || []).forEach((id) => { if (!map[id] || when > map[id]) map[id] = when; });
   });
@@ -2763,6 +2770,9 @@ function updateRepaymentUi_() {
   document.getElementById("repayment-hint").textContent = isLoan
     ? (iPaid ? tr("transfer.hintLoanIPaid") : tr("transfer.hintLoanTheyPaid"))
     : (iPaid ? tr("transfer.hintRepayIPaid") : tr("transfer.hintRepayTheyPaid"));
+  // A loan with installments: a plain repayment lowers the debt but marks no installment paid (testers 2.80.0, Lucho).
+  const repayWho = (meta.friends || []).find((f) => f.id === document.getElementById("repayment-friend").value);
+  if (!isLoan && repayWho && repayWho.bank_lender) document.getElementById("repayment-hint").textContent += " " + tr("transfer.hintScheduled");
 
   // This replaces the transfer's own fields: no "Paid by", no "To" — just
   // the one account the money moved through.
@@ -5237,7 +5247,7 @@ function entryDescShown_(entry) {
   const d = String(entry.description || "");
   // A partner's money (piece 7): the text the server wrote (Partners.gs, both languages) repeats the title.
   if (d && entry.type === "transfer" && entry.link && entry.link.partner_id &&
-      /^(Aporte de capital de |Capital contribution from |Plata de .+ \(por definir\)$|Money from .+ \(to be decided\)$|Distribución de utilidades a |Profit distribution to |Préstamo de |Loan from )/.test(d)) return "";
+      /^(Aporte de capital de |Capital contribution from |(Plata|Dinero) de .+ \(por definir\)$|Money from .+ \(to be decided\)$|Distribución de utilidades a |Profit distribution to |Préstamo de |Loan from )/.test(d)) return "";
   if (!d || entry.type !== "transfer" || !entry.link || !entry.link.friend) return d;
   const S = window.STRINGS || {};
   const own = ["desc.repaymentFrom", "desc.repaymentTo", "desc.loanTo", "desc.loanFrom"].some((k) => S[k] && ["en", "es"].some((l) => S[k][l] && S[k][l].replace("{name}", entry.link.friend) === d));
@@ -7845,9 +7855,15 @@ function exitEditMode() {
 // account as they were (the currency goes back to the main one, 2026-11-04), to make logging several in a row from
 // the same account the same day faster — see resetToFreshEntryScreen_
 // below for the "finishing an edit" case, which also resets these.
+// The Banco de la Nación account of a company copy's detracciones (backend/Detractions.gs) only pays taxes: it is never an account
+// the app starts a form on, nor one that climbs the list because the app moved money into it by itself (testers 2.80.0, Diego).
+function isDetractionAccount_(id) {
+  const bn = String((meta && meta.settings && meta.settings.detraction_account_id) || "");
+  return !!bn && String(id || "") === bn;
+}
 function pickDefaultAccount_() {
   const select = document.getElementById("payment_method");
-  const first = Array.from(select.options).find((o) => o.value && o.value !== "__add__");
+  const first = Array.from(select.options).find((o) => o.value && o.value !== "__add__" && !o.value.startsWith("__") && !isDetractionAccount_(o.value));
   select.value = first ? first.value : "";
 }
 
@@ -8914,7 +8930,8 @@ function reopenMoneyItem_(item) {
     document.getElementById("loan-due-date").value = p.due_date || "";
     document.getElementById("loan-payment-method").value = p.payment_method_id || "";
     document.getElementById("loan-description").value = p.description || "";
-    if (businessOn() && p.project_id !== undefined) document.getElementById("loan-project").value = p.project_id || "";
+    if (companyCopyOn_()) document.getElementById("loan-project").value = loanBusinessValue_(p.project_id, p.company_id);
+    else if (businessOn() && p.project_id !== undefined) document.getElementById("loan-project").value = p.project_id || "";
     document.getElementById("loan-form-error").textContent = reason;
     moneyReopen_ = { id: item.id, kind: "loan" };
   } else if (item.action === "forgiveLoan" && ctx.loan) {
@@ -10614,9 +10631,13 @@ function syncMoreDetails_() {
   if (body.hidden !== closed) body.hidden = closed;
   const expanded = String(!closed);
   if (toggle.getAttribute("aria-expanded") !== expanded) toggle.setAttribute("aria-expanded", expanded);
-  const sum = (moreDetailsSummary_() || "") + (closed ? " ›" : "");
+  // With nothing to sum up, the "›" sits right after the title (testers 2.80.0, Wilmer: alone on its own line it read as a broken row).
+  const summary = moreDetailsSummary_() || "";
+  const sum = summary ? summary + (closed ? " ›" : "") : "";
   const sumEl = document.getElementById("more-details-sum");
   if (sumEl.textContent !== sum) sumEl.textContent = sum;
+  if (sumEl.hidden !== !sum) sumEl.hidden = !sum;
+  toggle.classList.toggle("more-details-arrow", closed && !summary);
 }
 function setMoreDetailsOpen_(open) { moreDetailsOpen_ = open; syncMoreDetails_(); }
 document.getElementById("more-details-toggle").addEventListener("click", () => setMoreDetailsOpen_(!moreDetailsOpen_));
@@ -11006,7 +11027,8 @@ function homeMainCard_(g) {
   const label = isCurrent
     ? tr("home.leftThisMonth")
     : tr("home.leftIn", { month: I18n.fmtMonthYear(new Date(y, mo - 1, 1), true) });
-  const net = m.net;
+  // A company copy: income minus expenses, as Overview's Result (owner, 2026-11-24; testers 2.80.0, Elena and Lucho: Home counted loans).
+  const net = companyCopyOn_() ? (m.income || 0) - (m.expense || 0) : m.net;
   const signed = (v) => `${roundHalfAway_(v) > 0 ? "+" : roundHalfAway_(v) < 0 ? "−" : ""}${homeShort_(v)}`;
   const four = `
     <div class="home-four">
@@ -13009,6 +13031,7 @@ function openDistributionEdit_(entry) {
   document.getElementById("partner-net").value = Math.abs(Number(entry.amount)).toFixed(2);
   document.getElementById("partner-withholding").value = Number(link.withholding) ? Number(link.withholding).toFixed(2) : "";
   partnerEditBusiness_(link);
+  showPartnerEditBox_(entry);
   updatePartnerGross_();
 }
 // The row's own company / project (the entry carries none: a partner's money keeps them on its row).
@@ -13039,9 +13062,28 @@ function openContributionEdit_(entry) {
   const radio = document.querySelector(`input[name="partner-kind"][value="${link.kind === "pending" ? "pending" : "contribution"}"]`);
   if (radio) radio.checked = true;
   partnerEditBusiness_(link);
+  showPartnerEditBox_(entry);
+}
+// Editing one already recorded: its account, date and description too (owner, 2026-11-27; testers 2.80.0, Wilmer). The description box
+// shows what the person typed; the app's own words ("Contribution from Ana") leave it empty, and empty keeps the app's words.
+function showPartnerEditBox_(entry) {
+  document.getElementById("partner-edit-box").hidden = false;
+  const acct = document.getElementById("partner-account");
+  acct.innerHTML = transferAccountOptions_(entry.payment_method_id || "", escapeHtml(tr("review.pickAccount")));
+  acct.value = entry.payment_method_id || "";
+  document.getElementById("partner-date").value = String(entry.date || "").slice(0, 10);
+  document.getElementById("partner-description").value = entryDescShown_(entry);
+}
+function partnerEditFields_() {
+  const account = document.getElementById("partner-account").value;
+  const date = document.getElementById("partner-date").value;
+  if (!account) return { error: tr("partner.errAccount") };
+  if (!date) return { error: tr("error.dateRequired") };
+  return { payment_method_id: account, date, description: document.getElementById("partner-description").value.trim() };
 }
 function openPartnerModal_(entry, mode) {
   partnerCtx_ = { entry, mode };
+  document.getElementById("partner-edit-box").hidden = true;
   document.getElementById("partner-net-box").hidden = true;
   document.getElementById("partner-out-rest").hidden = false;
   document.getElementById("partner-net-label").textContent = tr("partner.netPaid");
@@ -13118,8 +13160,10 @@ document.getElementById("partner-save").addEventListener("click", () => {
     if (edit) {
       const amount = parseFloat(String(document.getElementById("partner-net").value).replace(/,/g, ""));
       if (!(amount > 0)) { err.textContent = tr("error.validAmount"); return; }
+      const more = partnerEditFields_();
+      if (more.error) { err.textContent = more.error; return; }
       action = "changePartnerMoney";
-      body = Object.assign({ id: edit.id, kind: kindEl.value, amount }, who, biz);
+      body = Object.assign({ id: edit.id, kind: kindEl.value, amount }, who, biz, more);
     }
   } else {
     const raw = document.getElementById("partner-withholding").value.trim();
@@ -13130,8 +13174,10 @@ document.getElementById("partner-save").addEventListener("click", () => {
     if (edit) {
       const net = parseFloat(String(document.getElementById("partner-net").value).replace(/,/g, ""));
       if (!(net > 0)) { err.textContent = tr("error.validAmount"); return; }
+      const more = partnerEditFields_();
+      if (more.error) { err.textContent = more.error; return; }
       action = "changeDistribution";
-      body = Object.assign({ id: edit.id, net, withholding: w }, who, biz);
+      body = Object.assign({ id: edit.id, net, withholding: w }, who, biz, more);
     }
   }
   document.getElementById("partner-modal-backdrop").hidden = true;
@@ -13202,7 +13248,9 @@ function openLenderLoanFromEntry_() {
   const currency = document.getElementById("currency").value.toUpperCase();
   const date = document.getElementById("date").value;
   const account = document.getElementById("payment_method").value;
-  const description = document.getElementById("description").value.trim();
+  // Only what the person typed: the transfer's own description ("… from Cash") is not the loan's (testers 2.80.0, Wilmer).
+  const typed = document.getElementById("description").value.trim();
+  const description = typed && typed !== String(lastAutoDescription || "").trim() ? typed : "";
   document.getElementById("transfer-kind").value = "between";
   resetEntryFormFields_();
   updateRepaymentUi_();
@@ -13239,7 +13287,12 @@ function syncPartnerEntryBlock_() {
   block.hidden = !kind;
   document.getElementById("tags-field").hidden = !!kind;   // a partner's money keeps no tags (the server would not save them)
   if (!kind) return;
-  if (wasHidden) {
+  // A fresh start each time the block appears or its kind changes: with two or more partners nobody is chosen (testers 2.80.0, Lucho
+  // and Diego: "Profit distribution" opened on the partner of the previous save).
+  const kindChanged = block.dataset.kind !== kind;
+  block.dataset.kind = kind;
+  if (wasHidden || kindChanged) {
+    document.getElementById("entry-partner").value = "";
     fillEntryPartnerOptions_();
     document.querySelectorAll('input[name="entry-partner-kind"]').forEach((r) => { r.checked = false; });
     document.getElementById("entry-partner-withholding").value = "";
@@ -18943,7 +18996,8 @@ ownerNamesEl_("owner-names-list").addEventListener("click", (e) => {
 // language change (see the picker below), so sorting once here, right after
 // i18n.js has filled in the text, is enough. See CHANGELOG.md § More tab:
 // statements group split out.
-(function sortMoreGroupsAz_() {
+// Sorted again when a company copy's own words come in (syncTextVariant_: "Friends" becomes "Contacts"; testers 2.80.0, Inés).
+function sortMoreGroupsAz_() {
   const labelOf = (btn) => {
     const span = btn.querySelector("span[data-i18n]");
     // Only a leading emoji/symbol is skipped (labels lost their emoji for line icons;
@@ -18957,7 +19011,8 @@ ownerNamesEl_("owner-names-list").addEventListener("click", (e) => {
       .sort((a, b) => labelOf(a).localeCompare(labelOf(b), I18n.getLang()))
       .forEach((btn) => group.appendChild(btn));
   });
-})();
+}
+sortMoreGroupsAz_();
 
 // Language picker (More tab). The choice is remembered on this phone; the app
 // reloads so every screen is rebuilt in the new language.
@@ -24275,12 +24330,19 @@ function businessMarginLinesHtml_(currencies) {
 // ---- More → Companies & projects ----
 
 let businessList_ = [];
+let businessListLoaded_ = false;
 
 async function showBusinessScreen() {
   showMoreSub_("business");
   fillBusinessPeriodSelects_();
   document.getElementById("business-invite").hidden = !perfIsOwnerCopy_();   // the owner's copy only
   document.getElementById("business-demo").hidden = !perfIsOwnerCopy_() || companyDemoOn_();
+  // Loading standard: the first time, "Loading…" until the list arrives, never an empty screen (testers 2.80.0, Diego). A list
+  // already shown stays until the new one replaces it.
+  if (!businessListLoaded_) {
+    document.getElementById("business-list").innerHTML = `<p class="hint">${escapeHtml(tr("common.loading"))}</p>`;
+    ["business-empty-note", "business-first-btn", "business-period", "business-edit-btn"].forEach((id) => { document.getElementById(id).hidden = true; });
+  }
   await refreshBusinessList_();
 }
 
@@ -24429,9 +24491,11 @@ async function refreshBusinessList_() {
     const b = businessBounds_();
     const list = await callApi("listCompaniesAndProjects", { startDate: b.startDate, endDate: b.endDate });
     businessList_ = list;
+    businessListLoaded_ = true;
     rememberBusinessLists_(list);
     renderBusinessList_(list);
   } catch (err) {
+    if (!businessListLoaded_) document.getElementById("business-list").innerHTML = "";
     errorEl.textContent = tr("business.loadFailed", { error: err.message });
   }
 }
@@ -26755,6 +26819,7 @@ function voucherFieldsToSend_() {
 }
 document.getElementById("voucher-type").addEventListener("change", syncVoucherField_);
 document.getElementById("payment_method").addEventListener("change", syncVoucherCash_);
+document.getElementById("payment_method").addEventListener("change", () => { if (!detrTouched_) syncDetractionField_(); });   // cash: no detracción by default
 // The account can also be filled in by the app itself (no change event): the list is checked again as it is opened.
 ["pointerdown", "focus"].forEach((ev) => document.getElementById("voucher-pay").addEventListener(ev, syncVoucherCash_));
 
@@ -26874,8 +26939,10 @@ function renderProjectContracts_(projectId, data) {
     row.type = "button";
     row.className = "loans-ov-owed-row unit-row";
     const name = [c.supplier, c.description].filter(Boolean).join(" · ");
-    const left = c.advance_left > 0.004 || c.retention_left > 0.004
-      ? `<small>${escapeHtml(tr("contract.rowLeft", { adv: contractMoney_(c.advance_left, c.currency), ret: contractMoney_(c.retention_left, c.currency) }))}</small>` : "";
+    // Only what is not zero (testers 2.80.0: "Guarantee to give back: PEN 0.00" took two lines for nothing), one line each.
+    const left = [c.advance_left > 0.004 ? tr("contract.rowAdvLeft", { amount: contractMoney_(c.advance_left, c.currency) }) : "",
+      c.retention_left > 0.004 ? tr("contract.rowRetLeft", { amount: contractMoney_(c.retention_left, c.currency) }) : ""]
+      .filter(Boolean).map((t) => `<small>${escapeHtml(t)}</small>`).join("");
     row.innerHTML = `<span><span class="unit-name">${escapeHtml(name)}</span>${left}</span>
       <b>${escapeHtml(contractMoney_(c.paid, c.currency))}<small>${escapeHtml(tr("sales.ofPrice", { price: contractMoney_(c.amount, c.currency) }))}</small></b>`;
     row.addEventListener("click", () => openContract_(c));
@@ -26916,7 +26983,9 @@ function openContract_(c) {
   document.getElementById("contract-error").textContent = "";
   const sum = document.getElementById("contract-sum");
   sum.hidden = !editing;
-  if (editing) sum.textContent = tr("contract.sum", { valued: contractMoney_(c.valued, c.currency), paid: contractMoney_(c.paid, c.currency), left: contractMoney_(c.to_pay, c.currency) });
+  // Three short lines, one figure each (testers 2.80.0: one bold paragraph broke in the middle of an amount).
+  if (editing) sum.innerHTML = [["contract.sumValued", c.valued], ["contract.sumPaid", c.paid], ["contract.sumLeft", c.to_pay]]
+    .map(([k, n]) => `<span class="contract-sum-row"><span>${escapeHtml(tr(k))}</span><b>${escapeHtml(contractMoney_(n, c.currency))}</b></span>`).join("");
   const pays = editing ? (c.payments || []) : [];
   document.getElementById("contract-payments-box").hidden = !pays.length;
   document.getElementById("contract-payments").innerHTML = pays.map((p) => `<p class="hint">${escapeHtml(tr("contract.payRow", { date: listDate_(p.date), kind: tr("contract.kind." + p.kind), amount: contractMoney_(p.amount, c.currency) }))}</p>`).join("");
@@ -27078,12 +27147,48 @@ function contractPayFieldToSend_() {
   if (kind === "valuation") Object.assign(out, { gross: contractNum_("contract-val-gross"), advance_amortized: contractNum_("contract-val-amort"), retention_held: contractNum_("contract-val-held") });
   return { contract_payment: out };
 }
-// Checked before the form closes (the server checks the same).
+// Checked before the form closes (the server checks the same, before it writes anything).
+// A contract chosen and then hidden by a change of project (or type) is not dropped in silence (testers 2.80.0, Diego): the first Save
+// says so and empties the choice; a second Save goes through with no contract.
+function contractPayDropped_() {
+  const sel = document.getElementById("contract-pay-pick");
+  const field = document.getElementById("contract-pay-field");
+  if (!sel.value || !field.hidden || !companyCopyOn_()) return "";
+  const c = (meta.contracts || []).find((x) => x.id === sel.value);
+  sel.value = "";
+  document.getElementById("contract-pay-detail").hidden = true;
+  return tr("contract.errDropped", { name: c ? [c.supplier, c.description].filter(Boolean).join(" · ") : "" });
+}
 function contractPayError_(amount) {
+  const dropped = selectedType === "expense" || document.getElementById("contract-pay-pick").value ? contractPayDropped_() : "";
+  if (dropped) return dropped;
   const sent = contractPayFieldToSend_().contract_payment;
   if (!sent) return "";
   if (!sent.kind) return tr("contract.errKind");
-  if (sent.kind === "valuation" && Math.abs(Math.round((sent.gross - sent.advance_amortized - sent.retention_held) * 100) / 100 - amount) > 0.01) return tr("contract.errNet");
+  const r2 = (n) => Math.round(n * 100) / 100;
+  if (sent.kind === "valuation" && Math.abs(r2(sent.gross - sent.advance_amortized - sent.retention_held) - amount) > 0.01) return tr("contract.errNet");
+  // The contract's ceilings (testers 2.80.0, Elena), leaving out this expense's own earlier payment when it is being edited.
+  const c = contractPicked_();
+  if (!c) return "";
+  const own = contractPayLink_ && contractPayLink_.contract_id === c.id ? contractPayLink_ : null;
+  const ownAmt = own ? Number(own.amount) || 0 : 0;
+  const advPaid = c.advance_paid - (own && own.kind === "advance" ? ownAmt : 0);
+  const amortized = c.advance_amortized - (own && own.kind === "valuation" ? Number(own.advance_amortized) || 0 : 0);
+  const valued = c.valued - (own && own.kind === "valuation" ? Number(own.gross) || 0 : 0);
+  const kept = (c.retained != null ? c.retained : c.retention_left) - (own && own.kind === "valuation" ? Number(own.retention_held) || 0 : 0);
+  const returned = (c.returned || 0) - (own && own.kind === "retention_return" ? ownAmt : 0);
+  const over = (a, b) => r2(a) - r2(b) > 0.009;
+  const money = (n) => contractMoney_(Math.max(0, r2(n)), c.currency);
+  if (sent.kind === "advance") {
+    const max = r2(c.amount * c.advance_pct / 100);
+    if (over(advPaid + amount, max)) return tr("contract.errOverAdvance", { max: money(max - advPaid) });
+  } else if (sent.kind === "retention_return") {
+    if (over(returned + amount, kept)) return tr("contract.errOverReturn", { max: money(kept - returned) });
+  } else {
+    if (over(valued + sent.gross, c.amount)) return tr("contract.errOverValued", { max: money(c.amount - valued) });
+    if (over(amortized + sent.advance_amortized, advPaid)) return tr("contract.errOverAmortized", { max: money(advPaid - amortized) });
+    if (over(sent.retention_held, sent.gross)) return tr("contract.errOverHeld");
+  }
   return "";
 }
 
@@ -27132,7 +27237,10 @@ function syncDetractionField_() {
   if (!rateBox.value) rateBox.value = String(detrRateFor_(company));
   if (!detrTouched_ && detrStored_ === null) {
     const cat = (meta.categories || []).find((c) => c.id === getCategoryId());
-    toggle.checked = !(cat && DETR_SALE_KEYS_.includes(String(cat.key || "")));
+    // Not ticked on the sale of a unit, money received in cash, or a refund (owner, 2026-11-27; testers 2.80.0: on cash it moved money
+    // from Cash to the Banco de la Nación nobody asked for). The person can still tick it.
+    const refund = !!cat && (String(cat.key || "") === "refunds" || String(cat.name) === "Refunds");
+    toggle.checked = !(cat && DETR_SALE_KEYS_.includes(String(cat.key || ""))) && !refund && !voucherCashAllowed_();
   }
   document.getElementById("detraction-detail").hidden = !toggle.checked;
   document.getElementById("detraction-pen-box").hidden = detrCur_() === "PEN";
@@ -27481,6 +27589,7 @@ function unitLastUsed_() {
   if (c.src === searchIndex && c.n === rows.length) return c.map;
   const map = {};
   rows.forEach((e) => {
+    if (e.detraction_of) return;   // the app's own move to the Banco de la Nación is not a use
     const when = String(e.date || "") + "|" + String(e.created_at || "");
     if (e.unit_id && (!map[e.unit_id] || when > map[e.unit_id])) map[e.unit_id] = when;
   });
@@ -28179,7 +28288,7 @@ async function askProgrammedTags_(asks) {
 let annualItemsAsked_ = false, annualItemsTries_ = 0;
 async function maybeAskAnnualItems_() {
   const list = meta && !meta.fromCache_ && Array.isArray(meta.annualItemsAsk) ? meta.annualItemsAsk : [];
-  if (annualItemsAsked_ || !list.length || (window.Spotlight && Spotlight.isRunning())) return;
+  if (annualItemsAsked_ || !list.length || companyCopyOn_() || (window.Spotlight && Spotlight.isRunning())) return;   // no Annual tag on a company copy
   if (payorMergeOpen_ || (reviewEntries_ || []).length >= 30) return;
   if (!document.getElementById("welcome-overlay").hidden || document.querySelector(".currency-modal-backdrop:not([hidden])")) {
     if (annualItemsTries_++ < 40) setTimeout(maybeAskAnnualItems_, 4000);
@@ -30934,7 +31043,7 @@ const LINK_ICON_RULES_ = [
   [/^(reopen|reabrir|reopening|reabriendo)/i, "refresh"],   // its Reopen, and every other "Reopen"
   [/^(starting balance|saldo inicial)/i, "plus"],   // the import's Done screen: gives a new account its starting balance
   [/^(this entry's changes|cambios de este movimiento|see the changes|ver los cambios)$/i, "clock"],
-  [/^(yearly statement|information statement|constancia anual|all the yearly statements|all the information statements|todas las constancias)$/i, "file"],   // piece 9
+  [/^(yearly statement|information statement|constancia anual|constancia informativa|all the yearly statements|all the information statements|todas las constancias)$/i, "file"],   // piece 9
   [/^(send the (corrected )?package|enviar el paquete)/i, "send"],   // piece 10
   [/^(return the deposit|devolver separación|return this payment|devolver este pago)/i, "undo"],   // piece 11
   [/^(refund…|reembolso…)$/i, "undo"],   // Refunds: money back on a purchase
@@ -32812,7 +32921,10 @@ function offerTransferGuide_(fromTab) {
     if (!popInView_(box)) return;
     spendRealChance_(feature);
     // The exchange form's explanation sits right under the type: the bubble points below it instead of covering it (testers 2.68.2).
-    const intro = kind === "exchange" ? document.querySelector('#exchange-modal-backdrop [data-i18n="xch.intro"], [data-i18n="xch.intro"]') : null;
+    // A partner's money: the same, below the Partner box (testers 2.80.0, Diego and Wilmer: the bubble covered it until a tap outside).
+    const intro = kind === "exchange" ? document.querySelector('#exchange-modal-backdrop [data-i18n="xch.intro"], [data-i18n="xch.intro"]')
+      : kind === "partner_in" ? document.getElementById("entry-partner-kind-box")
+      : kind === "distribution" ? document.getElementById("entry-partner-out-box") : null;
     const at = intro && popInView_(intro) ? intro : box;
     popTipShow_({ key: "offer-" + feature, text: tr("rt.offer." + kind), offer: () => startTransferReal_(kind) }, at);
   }, 350);
@@ -37625,6 +37737,11 @@ function populateLoanFriendOptions(keepId) {
     hint.textContent = tr("loanModal.pickOrAddFriend");
     hint.disabled = true;
     select.appendChild(hint);
+  } else if (companyCopyOn_()) {   // nobody chosen for the person: the box asks (testers 2.80.0, Lucho)
+    const ask = document.createElement("option");
+    ask.value = "";
+    ask.textContent = tr("loanModal.pickOrAddFriend");
+    select.appendChild(ask);
   }
   people.forEach((f) => {
     const opt = document.createElement("option");
@@ -37978,7 +38095,8 @@ function openLoanModal(loan, returnFriend, opts) {
   document.getElementById("loan-friend-error").hidden = true;
   populateLoanFriendOptions(loan && loan.friend_id);
   populateLoanPaymentMethodOptions();
-  document.getElementById("loan-friend").value = loan ? loan.friend_id : ((opts && opts.friendId) || (meta.friends.length ? meta.friends[0].id : ""));
+  // A company copy starts with nobody chosen (testers 2.80.0, Lucho: the first contact was picked for them).
+  document.getElementById("loan-friend").value = loan ? loan.friend_id : ((opts && opts.friendId) || (meta.friends.length && !companyCopyOn_() ? meta.friends[0].id : ""));
   setLoanDirection_(loan ? loan.direction : ((opts && opts.direction) || "they_owe_me"));   // the "You owe" card's + starts on "I owe them"
   document.getElementById("loan-amount").value = loan ? loan.amount : "";
   document.getElementById("loan-currency").value = loan ? loan.currency : homeCur();
@@ -37994,7 +38112,7 @@ function openLoanModal(loan, returnFriend, opts) {
   loanPmSelect.value = loan ? (loan.payment_method_id || "") : (loanPmSelect.options.length ? loanPmSelect.options[0].value : "");
   if (!loan) avoidCardDefault_(loanPmSelect);   // a new loan never starts on a credit card (owner, 2026-11-23)
   document.getElementById("loan-description").value = loan ? (loan.description || "") : "";
-  populateLoanProjectOptions_(loan ? (loan.project_id || "") : "");
+  populateLoanProjectOptions_(loan ? (loan.project_id || "") : "", loan ? (loan.company_id || "") : null);
   // "From before the app": a choice for a NEW loan; an existing one shows what it is and cannot be switched.
   const openingBox = document.getElementById("loan-opening");
   openingBox.checked = loan ? loan.opening === "1" || loan.opening === 1 : !!(opts && opts.opening);
@@ -38012,9 +38130,21 @@ function openLoanModal(loan, returnFriend, opts) {
 }
 
 // Business pack: a cash loan may belong to a project (shown only when the pack is on and a project exists).
-function populateLoanProjectOptions_(keep) {
+// A company copy: the "+" form's Company / project picker, with "Only the company" and never "Personal" (testers 2.80.0, Lucho: the
+// loan started on "Personal" with no way to put it on the company alone). `keepCompany` null = a new loan (the company's default).
+function loanBusinessValue_(projectId, companyId) { return projectId ? "p:" + projectId : companyId ? "c:" + companyId : ""; }
+function populateLoanProjectOptions_(keep, keepCompany) {
   const field = document.getElementById("loan-project-field");
   const sel = document.getElementById("loan-project");
+  if (companyCopyOn_()) {
+    field.hidden = false;
+    field.querySelector("label").textContent = tr("field.business");
+    fillBusinessOptions_(sel, keepCompany === null && !keep ? companyDefaultPick_() : loanBusinessValue_(keep, keepCompany));
+    [...sel.options].forEach((o) => { if (!o.value) o.remove(); });   // the company's money: never "Personal"
+    if (!sel.value && sel.options.length) sel.value = sel.options[0].value;
+    return;
+  }
+  field.querySelector("label").textContent = tr("business.loanProject");
   const show = businessOn() && (meta.projects || []).length > 0;
   field.hidden = !show;
   sel.innerHTML = "";
@@ -38129,7 +38259,8 @@ document.getElementById("loan-save-btn").addEventListener("click", async () => {
       description
     };
     if (opening && !editingLoanId) fields.opening = true;
-    if (businessOn()) fields.project_id = document.getElementById("loan-project").value;
+    if (companyCopyOn_()) Object.assign(fields, reviewBusinessFields_(document.getElementById("loan-project").value || ""));
+    else if (businessOn()) fields.project_id = document.getElementById("loan-project").value;
     if (!editingLoanId) tipNoteLoanSaved_(fields);   // the first-use practice remembers its own loan
 
     if (moneyBackground_()) {
@@ -38274,9 +38405,12 @@ function renderSettlementCurrencyChips_() {
 function settlementFriendContext_() {
   const net = repaymentNetByCurrency[repaymentCurrency] || 0;
   const amount = Math.abs(net);
-  return repaymentDirection === "they_owe_me"
+  const base = repaymentDirection === "they_owe_me"
     ? tr("settle.contextTheyOwe", { name: repaymentFriendName, cur: repaymentCurrency, amount: moneyFmt(amount) })
     : tr("settle.contextIOwe", { name: repaymentFriendName, cur: repaymentCurrency, amount: moneyFmt(amount) });
+  // A loan with installments: a plain repayment marks no installment paid (testers 2.80.0, Lucho).
+  const who = (meta.friends || []).find((f) => f.id === repaymentFriendId);
+  return base + (who && who.bank_lender ? " " + tr("transfer.hintScheduled") : "");
 }
 
 // A new repayment starts on an account, never on "None": the one used for the last repayment recorded on this phone, else the first account.

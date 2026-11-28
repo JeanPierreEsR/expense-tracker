@@ -121,3 +121,29 @@ test("an invoice in dollars: out of the bank in dollars, into the Banco de la Na
   assert.throws(() => income(rt, { currency: "EUR", amount: 1000, detraction_amount: 40, date: "2020-01-15" }), /soles/i);
   assert.equal(rt.rows("Entries").length, before, "nothing saved");
 });
+
+// testers 2.80.0 (Elena): the Banco de la Nación account starts at 0, so Balances and the month close list it.
+test("the Banco de la Nación account shows in Balances, from the day before its first movement", () => {
+  const rt = companyCopy();
+  income(rt, { detraction_amount: 400 });
+  const bn = bnId(rt);
+  const row = rt.api("listPaymentMethodBalances", {}).find ? rt.api("listPaymentMethodBalances", {}).find((r) => r.id === bn || r.payment_method_id === bn)
+    : (rt.api("listPaymentMethodBalances", {}).accounts || []).find((r) => r.id === bn || r.payment_method_id === bn);
+  assert.ok(row, "listed in Balances");
+  const earlier = new Date(today() + "T12:00:00Z"); earlier.setUTCDate(earlier.getUTCDate() - 20);
+  income(rt, { detraction_amount: 100, amount: 2500, date: earlier.toISOString().slice(0, 10) });
+  assert.equal(balanceOf(rt, bn), 500);
+  const opening = rt.rows("Account Opening Balances").filter((r) => r.payment_method_id === bn);
+  assert.equal(opening.length, 1);
+  assert.ok(String(opening[0].date) < earlier.toISOString().slice(0, 10), "moved back before the earlier movement");
+  assert.equal(Number(opening[0].amount), 0);
+});
+
+test("a negative detracción is refused, and nothing is saved", () => {
+  const rt = companyCopy();
+  const before = rt.rows("Entries").length;
+  assert.throws(() => income(rt, { detraction_amount: -50 }), /above 0|mayor que 0/);
+  assert.equal(rt.rows("Entries").length, before);
+  const e = income(rt, { detraction_amount: 123.456 });
+  assert.equal(Number(rt.rows("Entries").find((x) => x.id === e.id).detraction_amount), 123.46);
+});

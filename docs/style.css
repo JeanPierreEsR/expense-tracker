@@ -4105,6 +4105,9 @@ body.fab-room { padding-bottom: calc(76px + 58px + 14px + 16px + env(safe-area-i
 .more-details-toggle { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: 100%; min-height: 52px; margin: 12px 0 4px; padding: 8px 12px; border: 1px solid var(--border); border-radius: var(--r-md); background: var(--surface); font: inherit; text-align: left; color: var(--text); cursor: pointer; }
 .more-details-toggle[hidden] { display: none; }
 .more-details-title { font-weight: 600; }
+.more-details-toggle.more-details-arrow { justify-content: center; }
+.more-details-toggle.more-details-arrow .more-details-title::after { content: "\00a0›"; font-weight: 400; color: var(--muted); }
+.more-details-sum[hidden] { display: none; }
 .more-details-sum { font-size: 0.8125rem; color: var(--muted); }
 
 /* Needs review short rows (owner, 2026-11-12). */
@@ -4326,6 +4329,10 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .unit-row small, .unit-payment small, #unit-stages small, #co-next-body small { display: block; font-size: 0.75rem; font-weight: 400; color: var(--muted); }
 .unit-name { font-weight: 600; }
 .unit-sum { font-weight: 600; }
+#contract-sum { display: flex; flex-direction: column; gap: 2px; margin-top: 0; font-weight: 400; }
+#contract-sum[hidden] { display: none; }
+.contract-sum-row { display: flex; justify-content: space-between; gap: 12px; }
+.contract-sum-row b { font-weight: 600; white-space: nowrap; }
 .unit-stage-new { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 .unit-stage-new select, .unit-stage-new .add-inline { grid-column: 1 / -1; }
 .unit-stage-new input { min-width: 0; }
@@ -4368,7 +4375,7 @@ h2.screen-title > .info-btn, h3 > .info-btn { vertical-align: -1px; }
 .close-diff-off { color: var(--warn-text); }
 .close-changed { color: var(--warn-text); font-weight: 600; }
 #co-close-body .add-inline { display: block; }
-.partner-kind { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; font-weight: 400; }
+.partner-kind { display: flex; gap: 8px; align-items: flex-start; padding: 6px 0; min-height: 44px; box-sizing: border-box; font-weight: 400; }
 .partner-kind input { margin-top: 4px; }
 .partner-kind span { display: flex; flex-direction: column; }
 .partner-kind small { font-size: 0.75rem; color: var(--muted); }

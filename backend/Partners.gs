@@ -131,6 +131,23 @@ function convertEntryToPartnerMoney(payload) {
  * entry becomes the loan's own money movement), and / or its partner, company, project. payload: { id, kind, partner_id?, company_id?,
  * project_id? }.
  */
+// The "Edit partner's money" window also changes the account, the date and the description (owner, 2026-11-27; testers 2.80.0,
+// Wilmer). Each only when sent. Returns the description to write: what was typed, else the app's own (`auto`); undefined = as before.
+function partnerEntryEdits_(entry, payload, auto) {
+  if (payload.payment_method_id !== undefined && String(payload.payment_method_id) !== String(entry.payment_method_id || '')) {
+    var pm = String(payload.payment_method_id || '');
+    if (!pm || !getAllRows('Payment Methods').some(function (p) { return String(p.id) === pm; })) throw new Error(tr_('err.paymentMethodNotFound'));
+    setEntryField_(entry.id, 'payment_method_id', pm); entry.payment_method_id = pm;
+  }
+  if (payload.date !== undefined && String(payload.date).slice(0, 10) !== String(entry.date).slice(0, 10)) {
+    var d = String(payload.date).slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) throw new Error(tr_('err.validDate'));
+    setEntryField_(entry.id, 'date', d); entry.date = d;
+  }
+  if (payload.description === undefined) return auto;
+  return String(payload.description || '').trim().substring(0, 500) || auto;
+}
+
 function changePartnerMoney(payload) {
   requireCompanyCopy_();
   return withScriptLockOnce_(function () {
@@ -149,21 +166,22 @@ function changePartnerMoney(payload) {
       if (!(isFinite(amount) && amount >= 0.01 && amount <= MAX_AMOUNT_)) throw new Error(tr_('err.validAmount'));
       if (Math.abs(Math.abs(Number(entry.amount)) - amount) > 0.004) { setEntryField_(entry.id, 'amount', amount); entry.amount = amount; }
     }
+    var desc = partnerEntryEdits_(entry, payload, tr_(kind === 'loan' ? 'desc.loanFrom' : kind === 'pending' ? 'partner.descPending' : 'partner.descContribution', { name: name }));
     if (kind === 'loan') {
       // The entry already is the transfer into the account: the loan takes it as its own (createLoan_ with transfer_entry_id).
       deleteRowsWhere_('Contributions', function (r) { return r.id === row.id; });
       var loan = createLoan_({
         friend_id: partnerId, direction: 'i_owe_them', origin: 'cash', amount: Number(entry.amount), currency: entry.currency,
         date: String(entry.date).slice(0, 10), due_date: '', payment_method_id: entry.payment_method_id || '',
-        description: tr_('desc.loanFrom', { name: name }), project_id: scope.project_id, company_id: scope.company_id,
+        description: desc, project_id: scope.project_id, company_id: scope.company_id,
         transfer_entry_id: entry.id
       });
-      setEntryField_(entry.id, 'description', tr_('desc.loanFrom', { name: name }));
+      setEntryField_(entry.id, 'description', desc);
       return { kind: 'loan', loan: loan };
     }
     var fields = { kind: kind, partner_id: partnerId, company_id: scope.company_id, project_id: scope.project_id };
     updateRowFields_('Contributions', row.id, fields);
-    setEntryField_(entry.id, 'description', tr_(kind === 'pending' ? 'partner.descPending' : 'partner.descContribution', { name: name }));
+    setEntryField_(entry.id, 'description', desc);
     return { kind: kind, contribution: Object.assign({}, row, fields) };
   });
 }
@@ -209,7 +227,7 @@ function changeDistribution(payload) {
     var partnerId = payload.partner_id || payload.partner_name ? partnerIdFor_(payload) : row.partner_id;
     net = round2_(net);
     if (Math.abs(Math.abs(Number(entry.amount)) - net) > 0.004) setEntryField_(entry.id, 'amount', Number(entry.amount) < 0 ? -net : net);
-    setEntryField_(entry.id, 'description', tr_('partner.descDistribution', { name: friendNameById_(partnerId) }));
+    setEntryField_(entry.id, 'description', partnerEntryEdits_(entry, payload, tr_('partner.descDistribution', { name: friendNameById_(partnerId) })));
     var fields = { partner_id: partnerId, company_id: scope.company_id, project_id: scope.project_id,
       withholding: round2_(withholding), gross: round2_(net + withholding) };
     updateRowFields_('Distributions', row.id, fields);

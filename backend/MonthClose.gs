@@ -182,10 +182,11 @@ function monthFigures_(month) {
     var p = k.split('|');
     return { type: p[0], category_id: p[1], category: cats[p[1]] ? String(cats[p[1]].name) : '', currency: p[2], amount: totals[k] };
   });
+  // What the company owed on the month's last day: the same list as Overview's "What is owed" (testers 2.80.0: the close kept only
+  // lenders and partners, without contacts' loans nor subcontractors' guarantees). `net` negative = owed by the company, as before.
   var owed = [];
-  listLoanBalances({}).forEach(function (f) {
-    if (f.role !== 'lender' && f.role !== 'partner') return;
-    f.balances.forEach(function (b) { if (Math.abs(b.net) > 0.004) owed.push({ name: f.friend_name, role: f.role, currency: b.currency, net: round2_(b.net) }); });
+  companyOwed_(monthLastDay_(month)).owed.forEach(function (p) {
+    p.lines.forEach(function (l) { owed.push({ name: p.name, role: p.role, currency: l.currency, net: round2_(-l.amount) }); });
   });
   return { balances: accountBalancesAt_(monthLastDay_(month)), byCategory: byCategory, owed: owed };
 }
