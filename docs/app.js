@@ -3514,7 +3514,15 @@ function syncPartsField_() {
     document.getElementById("selected-category-banner").hidden = true;
     document.getElementById("category-select-field").hidden = true;
     document.getElementById("split-field").hidden = true;
-    document.getElementById("refund-field").hidden = true;   // a refund of one part comes later (plan step 3)
+    // A saved purchase: one Refund… button, which asks which part the money came back for (plan step 3).
+    const canRefund = refundsOn_() && !!partsOrigin_ && !confirmingPendingId &&
+      partsOrigin_.some((p) => refundR2_(Number(p.amount) - Number(p.refunded || 0)) > 0.004);
+    document.getElementById("refund-field").hidden = !canRefund;
+    if (canRefund) {
+      document.getElementById("refund-line").hidden = true;
+      document.getElementById("refund-list-btn").hidden = true;
+      document.getElementById("refund-open-btn").hidden = false;
+    }
   }
 }
 function partAmountCents_(text) {
@@ -3658,7 +3666,15 @@ document.getElementById("parts-open-btn").addEventListener("click", () => {
   partsOn_(rows);
   const second = document.querySelector("#parts-list .part-row .part-amt");
   if (second) second.focus();
+  watchPartsTip_();
 });
+// The first time someone splits a purchase (they asked for it by tapping): one bubble at the first part's "Shared with" line, on
+// what is not obvious, the last part and sharing one part (plan step 3; a help bubble, shown when the keyboard closes).
+function watchPartsTip_() {
+  popTipWatch_({ key: "partsSplit", place: "entry", help: true, text: tr("pop.partsSplit"),
+    target: () => document.querySelector("#parts-list .part-row .part-share"),
+    stillWanted: () => partsActive_() && !document.getElementById("entry-form").hidden });
+}
 document.getElementById("parts-add-btn").addEventListener("click", () => {
   if (!partsState_) return;
   partsState_.rows.push(newPartRow_(""));
@@ -3704,7 +3720,7 @@ async function purchasePartsFor_(entry) {
   const have = applyQueuedEditOverlay_(lastRenderedEntries_ || []).filter((e) => String(e.purchase_id || "") === pid);
   if (have.length >= 2 && have.length === Number(entry.purchase_count || have.length) && have.every((e) => Array.isArray(e.splits))) {
     return have.slice().sort((a, b) => (a.id === pid ? -1 : 0) - (b.id === pid ? -1 : 0))
-      .map((e) => ({ id: e.id, category_id: e.category_id || "", amount: Number(e.amount), splits: e.splits }));
+      .map((e) => ({ id: e.id, category_id: e.category_id || "", amount: Number(e.amount), splits: e.splits, refunded: Number(e.refunded || 0) }));
   }
   const out = await callApi("getPurchaseParts", { id: entry.id });
   return (out && out.parts) || [];
@@ -4647,6 +4663,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     }
     // Split by category: [{ id, category_id, amount, splits }], the first part being this entry itself (null = one category).
     const parts = !isRepayment ? partsForSave_() : null;
+    if (parts) popUsed_("partsSplit");
     const splits = parts ? parts[0].splits : validateSplitIfEnabled();
     const groupSize = parts ? null : splitGroupSizeToSave_(splits);
     const charge = chargeForSave_(parts ? parts[0].amount : amount, currency, splits, selectedType, paidByForCharge_());
@@ -5844,7 +5861,9 @@ function joinPurchaseParts_(list) {
     const parts = g.slice().sort((a, b) => (a.id === pid ? -1 : 0) - (b.id === pid ? -1 : 0));
     const sum = (k) => (parts.some((x) => x[k] == null) ? null : Math.round(parts.reduce((t, x) => t + Number(x[k]), 0) * 100) / 100);
     const queued = parts.find((x) => x._queueStatus);
+    const sum0 = (k) => Math.round(parts.reduce((t, x) => t + Number(x[k] || 0), 0) * 100) / 100;   // refunds on any part (step 3)
     out.push(Object.assign({}, parts[0], {
+      refunded: sum0("refunded"), refund_folded: sum0("refund_folded"), refund_folded_pen: sum0("refund_folded_pen"), refund_expected: sum0("refund_expected"),
       amount: sum("amount"), own_share: sum("own_share"), amount_pen: sum("amount_pen"), own_share_pen: sum("own_share_pen"),
       splits: parts.flatMap((x) => x.splits || []), _parts: parts,
       _queueStatus: queued ? queued._queueStatus : parts[0]._queueStatus, _queueError: queued ? queued._queueError : parts[0]._queueError
@@ -7619,7 +7638,21 @@ function updateRefundField_() {
 // An entry opened from a list that does not carry its friends' shares (Home's search results, testers 2.75.0: the refund was not divided)
 // is fetched first, so a shared purchase's refund is always divided as it was bought.
 const refundNeedsFetch_ = (e) => e && e.type === "expense" && !Array.isArray(e.splits);
-document.getElementById("refund-open-btn").addEventListener("click", () => {
+document.getElementById("refund-open-btn").addEventListener("click", async () => {
+  // Split into categories: the refund is for ONE part (it goes in that part's category); asked when there are several.
+  if (partsActive_() && partsOrigin_) {
+    const open = partsOrigin_.filter((p) => refundR2_(Number(p.amount) - Number(p.refunded || 0)) > 0.004);
+    if (!open.length) return;
+    const label = (p) => `${categoryName(p.category_id)} · ${formatAmount(Number(p.amount), document.getElementById("currency").value)}`;
+    let pick = open[0];
+    if (open.length > 1) {
+      const ans = await askConfirmApp_(tr("parts.refundWhich"), label(open[0]), { plain: true, choices: open.slice(1).map((p) => ({ label: label(p), value: p.id })) });
+      if (!ans) return;
+      if (ans !== true) pick = open.find((p) => p.id === ans) || null;
+    }
+    if (pick) openRefundForId_(pick.id);
+    return;
+  }
   if (!editingRefundEntry_) return;
   if (refundNeedsFetch_(editingRefundEntry_)) openRefundForId_(editingRefundEntry_.id); else openRefundSheet_(editingRefundEntry_);
 });
@@ -8190,8 +8223,8 @@ async function startEditEntry(entry) {
     const total = Math.round(savedParts.reduce((sum, p) => sum + Number(p.amount), 0) * 100) / 100;
     document.getElementById("amount").value = total;
     editingEntrySummary_ = describeForConfirm_(entry.description || entry.merchant || "", formatAmount(total, entry.currency), entry.date);
+    partsOrigin_ = savedParts;   // (set first: the Refund… button reads it while the parts are drawn)
     partsOn_(partsFromSaved_(savedParts));
-    partsOrigin_ = savedParts;
   }
   entryTagIds.forEach((id) => selectedTagIds.add(id));
   populateTags();

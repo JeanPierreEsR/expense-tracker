@@ -218,3 +218,68 @@ test("Undo when the friend's share was only netted against a debt the other way:
   assert.equal(t.row(e.id).status, "pending");
   assert.equal(net(), before, "the friend's balance is back to what it was");
 });
+
+test("step 3: a refund of ONE part goes in that part's category, and the purchase keeps it safe", () => {
+  const t = setup();
+  const { mainId, partId } = t.buy();
+  const out = t.rt.api("recordRefund", { entry_id: partId, amount: 15, date: "2026-03-20", payment_method_id: t.pm.id });
+  const r = t.row(out.entry.id);
+  assert.equal(r.refund_of, partId);
+  assert.equal(r.category_id, t.shopping, "same month: a minus expense in the part's own category");
+  const parts = t.rt.api("getPurchaseParts", { id: mainId }).parts;
+  assert.equal(parts.find((p) => p.id === partId).refunded, 15);
+  // The part can't be dropped nor made smaller than its refund; the main part can still change.
+  assert.throws(() => t.rt.api("saveEntryAll", { kind: "update", id: mainId, fields: { amount: 160 }, splits: [], tag_ids: [], parts: [] }), /refund/i);
+  assert.ok(t.row(partId), "nothing changed");
+  assert.throws(() => t.rt.api("saveEntryAll", { kind: "update", id: mainId, fields: { amount: 150 }, splits: [], tag_ids: [], parts: [{ id: partId, category_id: t.shopping, amount: 10, splits: [] }] }));
+  assert.equal(Number(t.row(partId).amount), 40);
+  t.rt.api("saveEntryAll", { kind: "update", id: mainId, fields: { amount: 100 }, splits: [], tag_ids: [], parts: [{ id: partId, category_id: t.shopping, amount: 60, splits: [] }] });
+  assert.equal(Number(t.row(partId).amount), 60);
+  // Delete asks about the part's refund too.
+  const links = t.rt.api("getEntryRepaymentLinks", { id: mainId });
+  assert.equal(links.purchaseRefunds.amount, 15);
+});
+
+test("step 3: Undo of a split confirm is refused once money came back on a part", () => {
+  const t = setup();
+  const e = t.rt.api("createEntry", t.fields({ amount: 160 }));
+  t.rt.run(`setEntryField_(${JSON.stringify(e.id)}, 'status', 'pending'); setEntryField_(${JSON.stringify(e.id)}, 'source', 'email')`);
+  const partId = uuid();
+  t.rt.api("saveEntryAll", { kind: "confirm", id: e.id, fields: { amount: 120, category_id: t.gifts }, splits: [], tag_ids: [], parts: [{ id: partId, category_id: t.shopping, amount: 40, splits: [] }] });
+  t.rt.api("recordRefund", { entry_id: partId, amount: 15, date: "2026-03-20", payment_method_id: t.pm.id });
+  assert.throws(() => t.rt.api("unconfirmEntry", { id: e.id }), /came back|devolvieron/);
+  assert.equal(t.row(e.id).status, "confirmed");
+});
+
+test("step 3: Export's spreadsheet has a column tying the parts of a split purchase together", () => {
+  const t = setup();
+  const { mainId, partId } = t.buy();
+  const csv = JSON.parse(t.rt.run(`JSON.stringify(buildEntriesCsv_({ startDate: "2026-03-01", endDate: "2026-03-31" }).text)`));
+  const lines = csv.trim().split(/\r\n/);
+  assert.match(lines[0], /Split purchase/);
+  const rowOf = (id) => lines.find((l) => l.startsWith(id + ","));
+  assert.ok(rowOf(mainId).endsWith("," + mainId));
+  assert.ok(rowOf(partId).endsWith("," + mainId));
+});
+
+test("step 3: a date or account changed on one part from elsewhere follows on the others", () => {
+  const t = setup();
+  const { mainId, partId } = t.buy();
+  t.rt.api("updateEntry", { id: partId, fields: { date: "2026-03-15", description: "Store, renamed" } });
+  assert.equal(String(t.row(mainId).date).slice(0, 10), "2026-03-15");
+  assert.equal(t.row(mainId).description, "Store, renamed");
+  assert.equal(t.row(mainId).category_id, t.gifts, "each part keeps its own category");
+  // A part that is no longer an expense leaves the purchase; the one left is a plain entry again.
+  const income = t.meta.categories.find((c) => c.type === "income").id;
+  t.rt.api("updateEntry", { id: partId, fields: { type: "income", category_id: income } });
+  assert.equal(t.row(partId).purchase_id, "");
+  assert.equal(t.row(mainId).purchase_id, "");
+});
+
+test("step 3: a bot's card for a split purchase shows the whole amount and each part", () => {
+  const t = setup();
+  const { mainId } = t.buy();
+  const card = JSON.parse(t.rt.run(`JSON.stringify(formatEntryForTelegram_(getEntryById_(${JSON.stringify(mainId)}), null, null, { hint: false }))`));
+  assert.match(card, /PEN 160\.00/);
+  assert.match(card, /Split into: .* 120\.00 · .* 40\.00/);
+});
