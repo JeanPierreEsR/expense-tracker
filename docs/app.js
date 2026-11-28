@@ -1110,7 +1110,10 @@ const LONG_ACTIONS = { applyStatementDecisions: 150000, undoStatementBatch: 1500
   applyTidyGroups: 90000, undoCategoryFollow: 90000, listTidyGroups: 60000,
   applyAnnualCleanup: 90000, undoAnnualCleanup: 90000, listAnnualCleanup: 60000,
   checkEmailsNow: 120000,   // reading the inbox for new bank e-mail can take a minute   // a history of thousands of entries reads and rewrites whole columns
-  checkAlertsNow: 60000 };   // the three alert checks can take 10-20 s on a big Sheet; a long wait is not a lost connection, so no six resends
+  checkAlertsNow: 60000,
+  // A save that waits its turn on the server (another save, a slow Sheet) used to pass 25 s, look like a lost connection and be sent
+  // again up to five times, each copy only queuing behind the first (owner's Performance log, 2026-11-28: 13 of 18 saves, ~11 minutes).
+  saveEntryAll: 60000 };   // the three alert checks can take 10-20 s on a big Sheet; a long wait is not a lost connection, so no six resends
 
 // Saving or changing any of these can cross a budget, a trip budget or a loan's due date: a few seconds later the app asks the server to
 // look at the alerts (checkAlertsSoon_, in the Alerts section below).
@@ -16173,8 +16176,30 @@ async function checkEmailsNow_(force) {
     emailCheckBusy_ = false;
   }
 }
-document.addEventListener("visibilitychange", () => {
-  if (document.visibilityState === "visible" && !document.getElementById("app").hidden) { checkEmailsNow_(false); loadNotices_(true); }
+// Coming back to an app that stayed open (owner, 2026-11-28: "it shows stale Needs review items"): nothing re-read Needs review, so an
+// item handled in Telegram / WhatsApp or one caught by the 15-minute timer or Apple Pay stayed wrong until a restart. After 30 s away the
+// list is asked for again, with the same "Checking…" line as at opening, and only then the e-mail and alert checks run, so they never
+// queue in front of it on the server.
+const REVIEW_RESUME_MS_ = 30 * 1000;
+let reviewHiddenAt_ = 0, reviewResumeBusy_ = false;
+document.addEventListener("visibilitychange", async () => {
+  if (document.visibilityState === "hidden") { reviewHiddenAt_ = Date.now(); return; }
+  if (document.visibilityState !== "visible" || document.getElementById("app").hidden) return;
+  const away = reviewHiddenAt_ && Date.now() - reviewHiddenAt_ >= REVIEW_RESUME_MS_;
+  if (away && meta && meta.categories && !reviewResumeBusy_ && !Spotlight.isRunning()) {
+    reviewResumeBusy_ = true;
+    setReviewCheckStatus_("checking");
+    try {
+      await refreshReviewQueue();
+      setReviewCheckStatus_("hidden");
+    } catch (err) {
+      setReviewCheckStatus_("failed");   // keeps what is shown, says it may be old, pull down to retry
+    } finally {
+      reviewResumeBusy_ = false;
+    }
+  }
+  checkEmailsNow_(false);
+  loadNotices_(true);
 });
 
 // ---- Is the e-mail check working? (backend/EmailHealth.gs decides; this only shows what it is told) ----

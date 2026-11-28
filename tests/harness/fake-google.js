@@ -418,6 +418,7 @@ function buildServices(state) {
     },
     Utilities: {
       getUuid: () => crypto.randomUUID(),
+      sleep: () => {},   // no real wait in tests (withAlertClaim_ counts the time itself)
       formatDate,
       DigestAlgorithm: { MD5: "md5", SHA_1: "sha1", SHA_256: "sha256" },
       computeDigest(alg, input) {
