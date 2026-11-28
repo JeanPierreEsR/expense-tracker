@@ -65,33 +65,78 @@ function sheetTabIsEmptyLeftover_(sheet) {
   return /^(sheet ?1|hoja ?1)$/i.test(sheet.getName()) && sheet.getLastRow() === 0 && sheet.getLastColumn() === 0;
 }
 
-/** The full tidy, once per copy (heal). Returns what it did, for the log and the tests. */
-function tidySheetTabs_() {
-  var ss = SpreadsheetApp.getActiveSpreadsheet();
-  var done = { moved: 0, removed: [] };
-  ss.getSheets().forEach(function (sh) {
-    if (ss.getSheets().length > 1 && sheetTabIsEmptyLeftover_(sh)) { ss.deleteSheet(sh); done.removed.push(sh.getName()); }
-  });
-  var sheets = ss.getSheets();
-  var byName = {};
-  sheets.forEach(function (sh) { byName[sh.getName()] = sh; });
-  var current = sheets.map(function (sh) { return sh.getName(); });
-  var wanted = sheetTabsWantedOrder_(current);
-  for (var i = 0; i < wanted.length; i++) {
-    if (current[i] === wanted[i]) continue;
-    sheetTabMove_(ss, byName[wanted[i]], i + 1);
-    current.splice(current.indexOf(wanted[i]), 1);
-    current.splice(i, 0, wanted[i]);
-    done.moved++;
+// The full tidy takes ~45 s on Google for ~67 tabs (owner's copy, 2026-11-28: the app's first open after the update waited that long).
+// So it is done in pieces: `budgetMs` = how long this call may work; the tabs already dressed are remembered, the order is re-read, and
+// the next call carries on. Copies with the 15-minute timer do it there (`tidySheetTabsInBackground_`, a minute a run); the others do
+// at most TIDY_TABS_OPEN_BUDGET_MS_ per app open. Only one call works at a time (a 2-minute mark in TIDY_TABS_BUSY_AT).
+var TIDY_TABS_DRESSED_PROPERTY_ = 'SHEET_TABS_TIDY_DRESSED';
+var TIDY_TABS_BUSY_PROPERTY_ = 'SHEET_TABS_TIDY_BUSY_AT';
+var TIDY_TABS_OPEN_BUDGET_MS_ = 1500;
+var TIDY_TABS_TIMER_BUDGET_MS_ = 60 * 1000;
+var TIDY_TABS_HEAL_ID_ = 'tidy-sheet-tabs';
+
+/**
+ * The full tidy, once per copy, possibly over several calls. Returns { moved, removed, finished } (`finished` false = out of time or
+ * another call is at it; call again). No budget = all at once (tests).
+ */
+function tidySheetTabs_(budgetMs) {
+  var t0 = Date.now();
+  var outOfTime = function () { return budgetMs && Date.now() - t0 >= budgetMs; };
+  var props = PropertiesService.getScriptProperties();
+  var done = { moved: 0, removed: [], finished: false };
+  var busy = Number(props.getProperty(TIDY_TABS_BUSY_PROPERTY_) || 0);
+  if (busy && Date.now() - busy < 2 * 60 * 1000) return done;
+  props.setProperty(TIDY_TABS_BUSY_PROPERTY_, String(Date.now()));
+  try {
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+    ss.getSheets().forEach(function (sh) {
+      if (ss.getSheets().length > 1 && sheetTabIsEmptyLeftover_(sh)) { ss.deleteSheet(sh); done.removed.push(sh.getName()); }
+    });
+    var sheets = ss.getSheets();
+    var byName = {};
+    sheets.forEach(function (sh) { byName[sh.getName()] = sh; });
+    var current = sheets.map(function (sh) { return sh.getName(); });
+    var wanted = sheetTabsWantedOrder_(current);
+    for (var i = 0; i < wanted.length; i++) {
+      if (current[i] === wanted[i]) continue;
+      if (outOfTime()) return done;
+      sheetTabMove_(ss, byName[wanted[i]], i + 1);
+      current.splice(current.indexOf(wanted[i]), 1);
+      current.splice(i, 0, wanted[i]);
+      done.moved++;
+    }
+    if (byName.Entries) ss.setActiveSheet(byName.Entries);   // never leave a tab about to be hidden as the open one
+    var places = sheetTabPlaces_();
+    var dressed = {};
+    try { JSON.parse(props.getProperty(TIDY_TABS_DRESSED_PROPERTY_) || '[]').forEach(function (n) { dressed[n] = true; }); } catch (err) { dressed = {}; }
+    for (var k = 0; k < current.length; k++) {
+      var name = current[k];
+      if (!places[name] || dressed[name]) continue;
+      if (outOfTime()) { props.setProperty(TIDY_TABS_DRESSED_PROPERTY_, JSON.stringify(Object.keys(dressed))); return done; }
+      try { sheetTabDress_(byName[name], places[name].group); } catch (err) { console.error('tidy tab ' + name + ': ' + err); }
+      dressed[name] = true;
+    }
+    props.setProperty(SHEET_TABS_SEEN_PROPERTY_, JSON.stringify(current));
+    props.deleteProperty(TIDY_TABS_DRESSED_PROPERTY_);
+    done.finished = true;
+    return done;
+  } finally {
+    props.deleteProperty(TIDY_TABS_BUSY_PROPERTY_);
   }
-  if (byName.Entries) ss.setActiveSheet(byName.Entries);   // never leave a tab about to be hidden as the open one
-  var places = sheetTabPlaces_();
-  current.forEach(function (name) {
-    if (!places[name]) return;
-    try { sheetTabDress_(byName[name], places[name].group); } catch (err) { console.error('tidy tab ' + name + ': ' + err); }
-  });
-  PropertiesService.getScriptProperties().setProperty(SHEET_TABS_SEEN_PROPERTY_, JSON.stringify(current));
-  return done;
+}
+
+// The heal's part, at an app open: a copy with the timer leaves it all to the timer; another does a short piece. False = not finished.
+function tidySheetTabsAtOpen_() {
+  if (featureOn_('gmail')) return false;
+  return tidySheetTabs_(TIDY_TABS_OPEN_BUDGET_MS_).finished;
+}
+
+// The timer's part: until the heal is done, a minute of tidying a run; when it finishes, the heal is marked done.
+function tidySheetTabsInBackground_() {
+  if (healIsDone_(TIDY_TABS_HEAL_ID_)) return null;
+  var r = tidySheetTabs_(TIDY_TABS_TIMER_BUDGET_MS_);
+  if (r.finished) markHealDone_(TIDY_TABS_HEAL_ID_);
+  return r;
 }
 
 /** Hourly: a tab the app added since the tidy goes to the end of its group, with its group's look. Nothing else moves. */

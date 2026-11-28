@@ -51,9 +51,20 @@ var HEALS_ = [
   // The Banco de la Nación (detracciones) account gets a starting balance of 0, so Balances and the month close list it (testers 2.80.0).
   { id: 'detraction-account-opening', run: function () { healDetractionOpening_(); } },
   // The Sheet's tabs in six groups, coloured; the app's logs hidden; header rows frozen; an empty "Sheet1" removed (owner, 2026-11-28,
-  // every copy). Order, colour and hiding only: no name, column or cell changes (SheetTabs.gs).
-  { id: 'tidy-sheet-tabs', owner: true, run: function () { tidySheetTabs_(); } }
+  // every copy). Order, colour and hiding only: no name, column or cell changes (SheetTabs.gs). Done in pieces (it took ~45 s at once):
+  // by the 15-minute timer where there is one, else a short piece per app open; `run` answers false until it is finished.
+  { id: 'tidy-sheet-tabs', owner: true, run: function () { return tidySheetTabsAtOpen_(); } }
 ];
+
+function healIsDone_(id) {
+  return String(PropertiesService.getScriptProperties().getProperty(HEALS_DONE_PROPERTY_) || '').split(',').indexOf(id) !== -1;
+}
+
+function markHealDone_(id) {
+  var props = PropertiesService.getScriptProperties();
+  var done = String(props.getProperty(HEALS_DONE_PROPERTY_) || '').split(',').filter(function (x) { return x; });
+  if (done.indexOf(id) === -1) { done.push(id); props.setProperty(HEALS_DONE_PROPERTY_, done.join(',')); }
+}
 
 function healMailboxAddressFromToLine_() {
   var props = PropertiesService.getScriptProperties();
@@ -90,7 +101,7 @@ function runHealsOnce_() {
   HEALS_.forEach(function (heal) {
     if (done.indexOf(heal.id) !== -1 || (!friend && !heal.owner && !heal.ownerOnly) || (friend && heal.ownerOnly)) return;
     try {
-      heal.run();
+      if (heal.run() === false) return;   // a heal done in pieces that is not finished yet: the next open carries on
       done.push(heal.id);
       props.setProperty(HEALS_DONE_PROPERTY_, done.join(','));
     } catch (err) {
