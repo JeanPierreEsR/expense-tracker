@@ -134,3 +134,32 @@ test("getPurchaseParts: every part, main first, with its split", () => {
   assert.deepEqual(out.parts.map((p) => p.id), [mainId, partId]);
   assert.deepEqual(out.parts[1].splits, [{ friend_id: friend.id, amount: 20 }]);
 });
+
+test("Needs review (step 2): a waiting purchase confirmed as a split purchase keeps its e-mail id on the main part", () => {
+  const t = setup();
+  const e = t.rt.api("createEntry", t.fields({ amount: 160 }));
+  t.rt.run(`setEntryField_(${JSON.stringify(e.id)}, 'status', 'pending'); setEntryField_(${JSON.stringify(e.id)}, 'source', 'email'); setEntryField_(${JSON.stringify(e.id)}, 'external_id', 'mail-123')`);
+  const partId = uuid();
+  t.rt.api("saveEntryAll", { kind: "confirm", id: e.id, fields: { amount: 120, category_id: t.gifts }, splits: [], tag_ids: [],
+    parts: [{ id: partId, category_id: t.shopping, amount: 40, splits: [] }] });
+  const main = t.row(e.id), part = t.row(partId);
+  assert.equal(main.status, "confirmed");
+  assert.equal(main.external_id, "mail-123");
+  assert.equal(Number(main.amount), 120);
+  assert.equal(part.status, "confirmed");
+  assert.equal(part.purchase_id, e.id);
+  assert.equal(String(part.payment_method_id), String(main.payment_method_id));
+  // The confirm's Undo is refused: a split purchase never goes back half way.
+  assert.throws(() => t.rt.api("unconfirmEntry", { id: e.id }));
+  assert.equal(analyse(t.rt, t.pm, [{ date: "2026-03-10", description: "ONLINE STORE", amount: -160, currency: "PEN" }])[0].entry.id, e.id);
+});
+
+test("a bank e-mail of the whole amount is warned about as a possible copy of the split purchase", () => {
+  const t = setup();
+  const { mainId } = t.buy({ fields: { description: "Online store" } });
+  const mail = t.rt.api("createEntry", t.fields({ amount: 160, description: "ONLINE STORE" }));
+  t.rt.run(`setEntryField_(${JSON.stringify(mail.id)}, 'status', 'pending'); setEntryField_(${JSON.stringify(mail.id)}, 'source', 'email')`);
+  const waiting = t.rt.api("listPendingEntries").find((x) => x.id === mail.id);
+  assert.ok(waiting, "the e-mail waits in Needs review");
+  assert.ok((waiting.twins || []).some((x) => x.id === mainId), "warned against the purchase");
+});

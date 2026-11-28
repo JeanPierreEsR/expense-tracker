@@ -3470,12 +3470,19 @@ function validateSplitIfEnabled() {
 function purchasePartsOn_() { return !!(meta && meta.capabilities && meta.capabilities.purchaseParts); }
 function partsActive_() { return !!partsState_ && selectedType === "expense"; }
 function partsAllowedHere_() {
-  if (!purchasePartsOn_() || selectedType !== "expense" || confirmingPendingId) return false;
+  if (!purchasePartsOn_() || selectedType !== "expense") return false;
+  // A Needs review item (step 2): only a plain purchase waiting to be confirmed (not a repayment or a charge being matched).
+  if (confirmingPendingId && !purchasePartsReviewOk_()) return false;
   if (editingEntryId && (editingLoanMovement_ || editingRepayment_ || editingRepaymentExtra_ || editingForgiveness_ || editingExchangeLeg_)) return false;
   const r = editingEntryId ? editingRefundEntry_ : null;
   if (r && (r.refund_of || Number(r.refunded || 0) > 0.004 || Number(r.paid_amount) > 0 || r.charge_pending)) return false;
   if (businessOn() && companyCopyOn_()) return false;   // a company copy splits between projects instead (ProjectSplits.gs)
   return true;
+}
+function purchasePartsReviewOk_() {
+  const e = (reviewEntries_ || []).find((x) => x.id === confirmingPendingId) || lastConfirmPendingEntry_ || {};
+  if (e.id && e.id !== confirmingPendingId) return false;
+  return !e.repay_intent && !e.charge_pending && !(Number(e.paid_amount) > 0) && !e.refund_of && !e.purchase_id;
 }
 function resetParts_() {
   partsState_ = null;
@@ -3670,6 +3677,15 @@ function partsForSave_() {
     }
     return { id: r.id || "", category_id: r.category_id, amount: amounts[i] / 100, splits };
   });
+}
+
+// Opens "Split into categories" once the form has finished loading (Needs review's own button for it).
+function openPartsWhenReady_(tries) {
+  tries = tries || 0;
+  const loading = document.getElementById("entry-card").classList.contains("entry-loading");
+  const btn = document.getElementById("parts-open-btn");
+  if (!loading && !document.getElementById("parts-field").hidden && !btn.hidden && !partsState_) { btn.click(); return; }
+  if (tries < 40 && !partsState_) setTimeout(() => openPartsWhenReady_(tries + 1), 100);
 }
 
 // An existing purchase opens with all its parts (from the list already on the phone when it holds them all, else from the server).
@@ -4671,7 +4687,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
     if (canProgram && !categoryId) throw new Error(tr("error.pickCategory"));   // a Programmed item needs its category
     const repeat = repeatChoice_();
     if (repeat && !categoryId) throw new Error(tr("error.pickCategory"));       // so does one made by "Repeat…"
-    if (parts && isFutureDate) throw new Error(tr("parts.notFuture"));
+    if (parts && (isFutureDate || pendingFuture)) throw new Error(tr("parts.notFuture"));
     if (parts && repeat) throw new Error(tr("parts.notRepeat"));
 
     if (isRepayment) {
@@ -4917,7 +4933,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         splits: selectedType === "expense" && (paidBy !== "me" || (splits && splits.length)) ? (charge.splits || []) : null,
         tagIds,
         planId: (reviewPlanFor_(confirmingPendingId) || {}).recurring_id || null,   // the card's "This is my Salary for August", left ticked
-        repeat   // "Repeat…": the confirmed entry becomes the first payment of a new Programmed item (saveEntryAll)
+        repeat,   // "Repeat…": the confirmed entry becomes the first payment of a new Programmed item (saveEntryAll)
+        parts: parts ? parts.slice(1) : null   // split by category: the other parts, made when it is confirmed (PurchaseParts.gs)
       });
       backgroundSaved = { kind: "confirm", id: confirmingPendingId };
     } else if (editingEntryId && editingRepayment_ && selectedType !== "transfer") {
@@ -8593,7 +8610,8 @@ function setQueuedReviewActions_(actions) {
 function queueReviewAction_(id, action, fields, extra) {
   const actions = getQueuedReviewActions_().filter((a) => a.id !== id);
   actions.push({ id, action, fields: fields || null, splits: extra && extra.splits ? extra.splits : null, tagIds: extra && extra.tagIds ? extra.tagIds : null, planId: extra && extra.planId ? extra.planId : null, repeat: extra && extra.repeat ? extra.repeat : null,
-    split: extra && extra.split ? extra.split : null });   // split: a project split's percentages (Business 2, piece 6)
+    split: extra && extra.split ? extra.split : null,   // split: a project split's percentages (Business 2, piece 6)
+    parts: extra && extra.parts ? extra.parts : null });   // split by category: the other parts of the purchase
   setQueuedReviewActions_(actions);
   syncReviewTwins_(id, action === "discard" ? null : "confirmed");
   // The item has left Needs review for the person: Overview / Budgets / Projections' "N wait" line drops it at once, not only after
@@ -8629,7 +8647,7 @@ async function applyReviewAction_(a) {
   if (a.action === "confirm" && entrySaveOne_()) {
     // One trip: the row's changes, the confirm, its split and tags (backend saveEntryAll, kind "confirm").
     const res = await callApi("saveEntryAll", withThen_({ kind: "confirm", id: a.id, fields: a.fields, splits: a.splits || undefined, tag_ids: a.tagIds || undefined, link_recurring_id: a.planId || undefined, repeat: a.repeat || undefined,
-      project_split: a.split || undefined },
+      project_split: a.split || undefined, parts: a.parts || undefined },
       [["listEntries", { limit: entriesShown + 1 }]]));
     unqueueReviewAction_(a.id);
     if (res && res.split_failed) appMessage_(tr("psplit.failedOnConfirm", { why: res.split_failed }));
@@ -10090,6 +10108,7 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       <button type="button" class="add-inline review-more-actions" aria-expanded="${moreOpen}">${tr("review.moreActions")}</button>
       <div class="review-item-secondary-actions">
         <button type="button" class="add-inline review-full-btn">${tr("review.editFull")}</button>
+        ${entry.type === "expense" && purchasePartsOn_() && !companyCopyOn_() && !entry.repay_intent && !entry.charge_pending && !(Number(entry.paid_amount) > 0) ? `<button type="button" class="add-inline review-parts-btn">${tr("parts.open")}</button>` : ""}
         ${reviewTagsOn_() ? `<button type="button" class="add-inline review-tags-btn">${escapeHtml(reviewTagsLabel_(entry))}</button>` : ""}
         ${entry.type !== "transfer" ? `<button type="button" class="add-inline review-repay-btn${(entry.loan_hint && entry.loan_hint.kind === "repayment") || reviewRepayIntentOn_(entry) ? " review-hint-btn" : ""}">${tr("review.markRepayment")}</button>
         <button type="button" class="add-inline review-loan-btn${entry.loan_hint && entry.loan_hint.kind === "loan" ? " review-hint-btn" : ""}">${tr("review.convertLoan")}</button>` : ""}
@@ -10387,6 +10406,9 @@ async function refreshReviewQueue(prefetchedPending, skipFlush) {
       // "Edit in full form" (owner, 2026-11-19; it replaces "Change type" and "Split", which opened the same form): every field of the
       // "+" form, Repeat and the transfer kinds included; saving there confirms it.
       item.querySelector(".review-full-btn").addEventListener("click", withRowEdits((e) => openConfirmPendingPopup(e)));
+      // Split by category (plan step 2): the same full form, opened with the parts already on; saving there confirms it.
+      const partsBtn = item.querySelector(".review-parts-btn");
+      if (partsBtn) partsBtn.addEventListener("click", withRowEdits(async (e) => { await openConfirmPendingPopup(e); openPartsWhenReady_(); }));
       const tagsBtn = item.querySelector(".review-tags-btn");
       if (tagsBtn) tagsBtn.addEventListener("click", () => openReviewTagsSheet_(entry));
       const repayBtn = item.querySelector(".review-repay-btn"); // not on a pending transfer

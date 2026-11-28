@@ -1339,6 +1339,7 @@ function unconfirmEntry_(payload) {
   if (!entry) throw new Error(tr_('err.entryNotFound'));
   if (entry.status !== 'confirmed') return { done: true, already: true };
   if (entry.source === 'manual' || (entry.type !== 'expense' && entry.type !== 'income')) throw new Error(tr_('err.cannotUnconfirm'));
+  if (entry.purchase_id) throw new Error(tr_('err.cannotUnconfirm'));   // a purchase split into categories (PurchaseParts.gs) stays as it is
   var hasSplits = getAllRows('Entry Splits').some(function (sp) { return sp.entry_id === id; });
   if (hasSplits) throw new Error(tr_('err.cannotUnconfirm'));
   setEntryField_(id, 'status', 'pending');
@@ -1423,7 +1424,7 @@ function unconfirmEntries(payload) {
       if (entry.status === 'pending') { out.undone.push(id); return; }
       // Like the single Undo, but a transfer or investment confirmed in the same go goes back too (a confirm made it nothing else); one
       // tied to a loan or a repayment, a manual entry or a split one stays (the single Undo's own refusals).
-      if (entry.source === 'manual' || getAllRows('Entry Splits').some(function (sp) { return sp.entry_id === id; }) ||
+      if (entry.source === 'manual' || entry.purchase_id || getAllRows('Entry Splits').some(function (sp) { return sp.entry_id === id; }) ||
           getAllRows('Loans').some(function (l) { return l.entry_id === id; }) ||
           getAllRows('Settlements').some(function (st) { return st.transfer_entry_id === id || st.gap_entry_id === id; })) throw new Error(tr_('err.cannotUnconfirm'));
       setEntryField_(id, 'status', 'pending');
