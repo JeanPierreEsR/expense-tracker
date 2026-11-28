@@ -345,6 +345,10 @@ function formatEntryForTelegram_(entry, categoryName, autoReason, opts) {
     // No category for investments (see defaultInvestmentCategoryId_); a type the app guessed from the place says so.
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) +
       (autoReason === true ? tr_('bot.autoTagShort') : autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));
+  } else if (purchaseBotLines_(entry)) {   // split into categories: the whole purchase, then each part (PurchaseParts.gs)
+    var pLines = purchaseBotLines_(entry);
+    lines.push(pLines.amount);
+    lines.push(pLines.parts);
   } else {
     lines.push(entry.currency + ' ' + moneyFmt_(entry.amount) + ' — ' + (categoryName || tr_('bot.needsCategory')) +
       (autoReason === true ? tr_('bot.autoTagShort') : autoReason ? tr_('bot.autoTag', { reason: autoReason }) : ''));

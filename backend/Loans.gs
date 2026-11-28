@@ -2381,7 +2381,12 @@ function getEntryRepaymentLinks(payload) {
     var siblings = purchaseSiblings_(getEntryById_(payload.id));
     if (siblings.length) {
       out.purchaseParts = siblings.length + 1;
-      siblings.forEach(function (s) { out.refunds = (out.refunds || []).concat(entryRepaidLoansSummary_(String(s.id))); });
+      siblings.forEach(function (s) {
+        out.refunds = (out.refunds || []).concat(entryRepaidLoansSummary_(String(s.id)));
+        // Refunds recorded on any part: Delete asks once what happens to them, for the whole purchase (plan step 3).
+        var r = purchaseRefundSummary_(String(s.id));
+        if (r) out.purchaseRefunds = { amount: Math.round(((out.purchaseRefunds ? out.purchaseRefunds.amount : 0) + r.amount) * 100) / 100, currency: r.currency };
+      });
     }
   }
   if (out && !out.loan && !out.repayment && !out.repaymentExtra && !out.forgiveness) {

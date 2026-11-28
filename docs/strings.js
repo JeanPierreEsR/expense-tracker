@@ -494,6 +494,8 @@
     "parts.notWithCharge": { en: "A purchase split into categories can't have a listed price in another currency.", es: "Una compra dividida en categorías no puede tener un precio en otra moneda." },
     "parts.notFuture": { en: "A future purchase can't be split into categories yet. Save it on its day.", es: "Una compra futura todavía no se puede dividir en categorías. Guárdala el día que la hagas." },
     "parts.notRepeat": { en: "A purchase split into categories can't repeat yet.", es: "Una compra dividida en categorías todavía no se puede repetir." },
+    "pop.partsSplit": { en: "The last part takes what is left of the amount. Tap “Shared with” to split just one part with a friend.", es: "La última parte toma lo que queda del monto. Toca “Compartida con” para repartir solo una parte con un amigo." },
+    "parts.refundWhich": { en: "Which part of the purchase was refunded?", es: "¿Qué parte de la compra te devolvieron?" },
     "parts.partOf": { en: "{part} of {total} · split purchase", es: "{part} de {total} · compra dividida" },
     "split.toggle": { en: "Split with friends", es: "Repartir con amigos" },   // one split control (owner, 2026-11-12)
     "split.toggle.co": { en: "Split with others", es: "Repartir con terceros" },
