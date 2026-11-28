@@ -1564,7 +1564,7 @@ body.sheet-open {
   display: inline-block;
   max-width: 100%;
   overflow-wrap: anywhere;
-  vertical-align: bottom;
+  vertical-align: baseline;
 }
 
 .entry-tags {
