@@ -1471,6 +1471,17 @@ function repeatEntryAsProgrammed_(entryId, rep) {
 function linkEntryToRecurring(payload) {
   if (payload.recurringExpenseId) assertRecurringExists_(payload.recurringExpenseId);
   var result = adminLinkEntryToRecurring(payload.entryId, payload.recurringExpenseId, payload.month);
+  // Undo of a link made by mistake (owner, 2026-11-28: a list that loaded under the finger linked the wrong entry): unlinking can
+  // also take back what the link added — the item's tags it brought (`removeTagIds`) and the trip it gave (`clearTrip`).
+  if (!payload.recurringExpenseId) {
+    var dropTags = (payload.removeTagIds || []).map(String);
+    if (dropTags.length) {
+      deleteRowsWhere_('Entry Tags', function (r) { return String(r.entry_id) === String(payload.entryId) && dropTags.indexOf(String(r.tag_id)) !== -1; });
+      touchEntriesById_([payload.entryId]);
+    }
+    if (payload.clearTrip) { setEntryField_(payload.entryId, 'trip_id', ''); touchEntriesById_([payload.entryId]); }
+    return result;
+  }
   // The owner just said this entry IS the payment for an estimate that sits in a
   // trip/event: the payment joins that trip too (unless it already has one).
   if (payload.recurringExpenseId) {
@@ -1479,6 +1490,7 @@ function linkEntryToRecurring(payload) {
     if (item && item.trip_id && entry && entry.type === 'expense' && !entry.trip_id && validTripIdOrBlank_(item.trip_id)) {
       ensureEntriesTripColumn_();
       setEntryField_(payload.entryId, 'trip_id', String(item.trip_id));
+      result.tripSet = true;
     }
     // Picked by hand in "Mark as paid…": the payment gets the item's tags (only added, never removed). The "Record the payment…" form
     // already carried them and the person may have removed one there, so it links with addTags false.
