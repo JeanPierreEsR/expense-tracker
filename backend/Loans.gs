@@ -3424,8 +3424,8 @@ function ensureLoanAlertLogSheet_() {
 // separate "reset" step needed.
 function checkOverdueLoans() {
   // The timer and the app (checkAlertsNow) can overlap; without the lock both read the alert log before either writes and the reminder
-  // goes out twice (checkBudgets and checkTripBudgets do the same).
-  return withScriptLockOnce_(checkOverdueLoansLocked_);
+  // goes out twice (checkBudgets and checkTripBudgets do the same). The claim (Notices.gs) does it without holding the app's lock.
+  return withAlertClaim_(checkOverdueLoansLocked_);
 }
 
 // A loan repaid, forgiven, deleted or given a new due date: its overdue alert goes, and is forgotten, so the loan alerts again if it ever falls

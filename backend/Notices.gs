@@ -145,13 +145,75 @@ function checkAlertsGuarded_(source) {
   var failed = 0;
   NOTICE_BATCH_ = { sent: 0, held: [] };
   try {
-    [checkBudgets, checkTripBudgets, checkOverdueLoans].forEach(function (check) {
-      try { check(); } catch (err) { failed++; console.error('alert check: ' + err); }   // one failing check must not stop the others
+    // One claim and one snapshot for the three checks (withAlertClaim_ below); a busy claim counts as three failed, as a held lock did.
+    withAlertClaim_(function () {
+      [checkBudgets, checkTripBudgets, checkOverdueLoans].forEach(function (check) {
+        try { check(); } catch (err) { failed++; console.error('alert check: ' + err); }   // one failing check must not stop the others
+      });
     });
+  } catch (busyErr) {
+    failed = 3;
+    console.error('alert checks: ' + busyErr);
   } finally {
     try { flushNoticeBatch_(); } catch (err) { console.error('alert send: ' + err); }
   }
   return { ran: true, failed: failed };
+}
+
+// ---- One alert check at a time, without holding the app's lock (owner, 2026-11-28) ----
+// The checks used to hold the script-wide lock for their whole run (10-20 s on a real Sheet, several times an hour: after every save,
+// on opening, from the keep-awake ping). Every save that creates something waits for that lock (Api.gs routeActionOnce_), so saves
+// queued behind them past the phone's 25 s, were resent, and landed minutes later (the owner's Performance log, 2026-11-28).
+// Now the lock is held only for a moment: to set a claim marker that keeps two alert checks apart (stale after a run's 6 minutes,
+// like the e-mail scan's) and to read a snapshot of the sheets the checks use, so a save is never seen half-written. The slow part
+// (adding up, sending to Telegram, writing the alert logs) runs outside the lock. A sheet a check writes is read again after the
+// write (getSheet drops its remembered rows). Waits up to ALERT_CLAIM_WAIT_MS_ for another check to finish, then is busy.
+var ALERT_RUNNING_KEY_ = 'ALERT_CHECK_RUNNING_AT';
+var ALERT_RUNNING_STALE_MS_ = 7 * 60 * 1000;
+var ALERT_CLAIM_WAIT_MS_ = 30000;
+var ALERT_CLAIM_HELD_ = false;
+var ALERT_SNAPSHOT_SHEETS_ = ['Budgets', 'Budget History', 'Budget Alert Log', 'Categories', 'Entries', 'Entry Splits', 'Entry Tags',
+  'Exchange Rates', 'Recurring Expenses', 'Recurring Skips', 'Recurring Expense Splits', 'Trips', 'Loans', 'Settlements', 'Friends',
+  'Loan Alert Log', 'Notices', 'Settings'];
+
+function withAlertClaim_(fn) {
+  if (ALERT_CLAIM_HELD_) return fn();   // the three checks inside checkAlertsGuarded_'s one claim
+  var props = PropertiesService.getScriptProperties();
+  var lock = LockService.getScriptLock();
+  var start = Date.now(), memoOwned = false;
+  for (;;) {
+    var ownsLock = !lock.hasLock();   // a caller up the stack may hold it: never release theirs
+    if (ownsLock) waitLockOrBusy_(lock, Math.max(1000, ALERT_CLAIM_WAIT_MS_ - (Date.now() - start)));
+    var claimed = false;
+    try {
+      var running = Number(props.getProperty(ALERT_RUNNING_KEY_) || 0);
+      if (!running || Date.now() - running >= ALERT_RUNNING_STALE_MS_) {
+        props.setProperty(ALERT_RUNNING_KEY_, String(Date.now()));
+        claimed = true;
+        if (!ROWS_MEMO_) { ROWS_MEMO_ = {}; memoOwned = true; }
+        ALERT_SNAPSHOT_SHEETS_.forEach(function (name) {
+          try { getAllRows(name); } catch (e) { /* a sheet this copy does not have yet */ }
+        });
+      }
+    } finally {
+      if (ownsLock) lock.releaseLock();
+    }
+    if (claimed) break;
+    if (Date.now() - start >= ALERT_CLAIM_WAIT_MS_) {
+      var busy = new Error(tr_('notice.busy'));
+      busy.busy = true;
+      throw busy;
+    }
+    Utilities.sleep(1000);
+  }
+  ALERT_CLAIM_HELD_ = true;
+  try {
+    return fn();
+  } finally {
+    ALERT_CLAIM_HELD_ = false;
+    if (memoOwned) ROWS_MEMO_ = null;
+    props.deleteProperty(ALERT_RUNNING_KEY_);
+  }
 }
 
 // ---- What the app calls ----
