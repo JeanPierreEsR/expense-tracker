@@ -215,6 +215,7 @@
               <p class="hint" id="repayment-hint"></p>
               <p class="hint repayment-nothing-owed" id="repayment-nothing-owed" hidden></p>
               <!-- "Choose which loans this pays" on a new repayment, like Loans → Record repayment (owner, 2026-11-14). -->
+              <p class="hint" id="entry-repay-choose-loading" aria-live="polite" hidden></p>
               <div id="entry-repay-choose" hidden>
                 <button type="button" class="add-inline" id="entry-repay-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
                 <div id="entry-repay-choose-panel" hidden>
@@ -4042,6 +4043,7 @@
         <label for="review-transfer-amount" data-i18n="field.amount">Amount</label>
         <input type="text" inputmode="decimal" id="review-transfer-amount" placeholder="0.00">
         <!-- "Choose which loans this pays" when a Needs review item becomes a repayment (owner, 2026-11-23), like Home's "+". -->
+        <p class="hint" id="review-transfer-choose-loading" aria-live="polite" hidden></p>
         <div id="review-transfer-choose" hidden>
           <button type="button" class="add-inline" id="review-transfer-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
           <div id="review-transfer-choose-panel" hidden>
