@@ -4530,6 +4530,9 @@ function sendPendingConfirmInBackground_(id) {
     // Split into categories (owner, 2026-11-27): Undo puts it back in Needs review as it arrived, one item with the whole amount.
     // Its friends' shares and debts go too (the server refuses only if a friend already repaid part of it).
     const parts = action.parts && action.parts.length ? action.parts : null;
+    // Shared with friends but not split (2026-11-28): Undo too, where the backend takes the shares back (unconfirmShared).
+    const shared = !parts && ((action.splits && action.splits.length) || (action.fields && action.fields.paid_by && action.fields.paid_by !== "me"));
+    if (!followed && shared && ((meta && meta.capabilities) || {}).unconfirmShared) offerUnconfirmUndo_({ id, type: (action.fields && action.fields.type) || "expense", currency: (action.fields && action.fields.currency) || homeCur() }, action.fields || {});
     if (!followed && parts) {
       const f = action.fields || {};
       const total = Number(f.amount || 0) + parts.reduce((sum, p) => sum + Number(p.amount), 0);
