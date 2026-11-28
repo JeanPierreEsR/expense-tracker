@@ -234,6 +234,32 @@ function purchaseStmtSummary_(e, catsById, pmsById) {
 // friends' shares and the debts they made go too (owner: also when a part is shared). A debt only netted against what the
 // friend owed the other way just owes again. Refused only when a friend REALLY repaid part of it, or it was forgiven: that
 // money moved, and Undo must not make it vanish (the person deletes the purchase instead, which asks what to do with it).
+// True when a debt made by sharing one of these entries (ids = { id: true }) was REALLY repaid or forgiven, even in part.
+// A debt only netted against what the friend owed the other way does not count: undoing it just makes that debt owe again.
+function sharedEntriesRepaid_(ids) {
+  var loans = getAllRows('Loans').filter(function (l) { return l.origin === 'entry' && ids[String(l.entry_id)]; });
+  if (!loans.length) return false;
+  ensureSettlementsOffsetColumn_();
+  var loanIds = {};
+  loans.forEach(function (l) { loanIds[String(l.id)] = true; });
+  return loans.some(function (l) { return l.status === 'forgiven' || Number(l.forgiven_parts ? loanForgivenPartsTotal_(l) : 0) > 0.004; }) ||
+    getAllRows('Settlements').some(function (s) { return loanIds[String(s.loan_id)] && !s.offset_loan_id && Number(s.amount) > 0.004; });
+}
+
+// Undo of a Needs review confirm of a PLAIN entry shared with friends (owner, 2026-11-28, "build all"): like a split purchase's
+// Undo, the friends' shares and the debts they made go, and it waits in Needs review again. Same refusals: a real repayment or a
+// forgiveness, or a refund on it.
+function unconfirmSharedEntry_(entry) {
+  var id = String(entry.id);
+  var ids = {};
+  ids[id] = true;
+  if (purchaseRefundSummary_(id)) throw new Error(tr_('review.undoRefunded'));
+  if (sharedEntriesRepaid_(ids)) throw new Error(tr_('review.undoRepaid'));
+  deleteEntrySplitsAndLoansForEntry_(id, false);
+  setEntryField_(id, 'status', 'pending');
+  return { done: true };
+}
+
 function unconfirmPurchase_(entry) {
   var pid = purchaseIdOf_(entry);
   var all = getAllRows('Entries').filter(function (e) { return purchaseIdOf_(e) === pid; });
@@ -241,17 +267,9 @@ function unconfirmPurchase_(entry) {
   if (!main || main.source === 'manual') throw new Error(tr_('err.cannotUnconfirm'));
   var ids = {};
   all.forEach(function (e) { ids[String(e.id)] = true; });
-  var loans = getAllRows('Loans').filter(function (l) { return l.origin === 'entry' && ids[String(l.entry_id)]; });
   // A refund recorded on a part is real money back: Undo refuses, like a friend's repayment (delete the purchase instead).
   if (all.some(function (e) { return purchaseRefundSummary_(String(e.id)); })) throw new Error(tr_('parts.undoRefunded'));
-  if (loans.length) {
-    ensureSettlementsOffsetColumn_();
-    var loanIds = {};
-    loans.forEach(function (l) { loanIds[String(l.id)] = true; });
-    var repaid = loans.some(function (l) { return l.status === 'forgiven' || Number(l.forgiven_parts ? loanForgivenPartsTotal_(l) : 0) > 0.004; }) ||
-      getAllRows('Settlements').some(function (s) { return loanIds[String(s.loan_id)] && !s.offset_loan_id && Number(s.amount) > 0.004; });
-    if (repaid) throw new Error(tr_('parts.undoRepaid'));
-  }
+  if (sharedEntriesRepaid_(ids)) throw new Error(tr_('parts.undoRepaid'));
   var total = Math.round(all.reduce(function (sum, e) { return sum + Number(e.amount || 0); }, 0) * 100) / 100;
   purchaseDeleting_ = true;
   try {
@@ -275,10 +293,15 @@ function syncPurchaseShared_(entryId, fields) {
   purchaseSyncing_ = true;
   try {
     if (entry.type !== 'expense') {
-      if (String(entryId) === pid) return;
       updateRowFields_('Entries', entryId, { purchase_id: '' });
       var rest = getAllRows('Entries').filter(function (e) { return purchaseIdOf_(e) === pid; });
-      if (rest.length === 1) updateRowFields_('Entries', String(rest[0].id), { purchase_id: '' });
+      if (rest.length === 1) { updateRowFields_('Entries', String(rest[0].id), { purchase_id: '' }); return; }
+      // The FIRST part left (owner, 2026-11-28): the next part becomes the purchase's first, and every part left points to it,
+      // so the rest stays one purchase (the purchase's id is always its first part's id).
+      if (String(entryId) === pid && rest.length) {
+        var next = String(rest[0].id);
+        rest.forEach(function (e) { updateRowFields_('Entries', String(e.id), { purchase_id: next }); });
+      }
       return;
     }
     var shared = {};
