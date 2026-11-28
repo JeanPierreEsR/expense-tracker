@@ -2376,6 +2376,14 @@ function getEntryRepaymentLinks(payload) {
   var out = getEntryRepaymentLinksBase_(payload);
   var refundsOf = out ? purchaseRefundSummary_(payload.id) : null;   // a purchase with refunds: Delete asks what happens to them (Refunds.gs)
   if (refundsOf) out.purchaseRefunds = refundsOf;
+  // A split purchase is deleted whole: what friends repaid on ANY part is asked about at once (PurchaseParts.gs).
+  if (out && !out.loan && !out.repayment && !out.repaymentExtra && !out.forgiveness) {
+    var siblings = purchaseSiblings_(getEntryById_(payload.id));
+    if (siblings.length) {
+      out.purchaseParts = siblings.length + 1;
+      siblings.forEach(function (s) { out.refunds = (out.refunds || []).concat(entryRepaidLoansSummary_(String(s.id))); });
+    }
+  }
   if (out && !out.loan && !out.repayment && !out.repaymentExtra && !out.forgiveness) {
     var entry = getEntryById_(payload.id);
     var partner = entry ? exchangeLegPartner_(entry) : null;
@@ -2484,7 +2492,9 @@ function discardEntryWithRepayments_(entryId, repayments) {
     deleteRowsWhere_('Settlements', function (s) { return s.transfer_entry_id === entryId; });
     Object.keys(touched).forEach(updateLoanStatusFromSettlements_);
   }
+  var asPart = getEntryById_(entryId);
   deleteEntry_(entryId);
+  deletePurchaseSiblings_(asPart, repayments);   // a split purchase goes whole (PurchaseParts.gs)
   return { done: true, undone_repayment: !!links.repayment, undone_forgiveness: !!links.forgiveness };
 }
 
@@ -3371,6 +3381,12 @@ function getFriendLoanDetail(friendId) {
     loan.unapplied = isUnappliedLoan_(loan);
     loan.schedule = schedules[loan.id] || null;
   });
+  // A split purchase's parts shared with this person: their debts show as ONE line on the phone (PurchaseParts.gs).
+  if (loans.some(function (l) { return l.origin === 'entry' && l.entry_id; })) {
+    var pidOf = {};
+    getAllRows('Entries').forEach(function (e) { if (e.purchase_id) pidOf[String(e.id)] = String(e.purchase_id); });
+    loans.forEach(function (l) { if (l.origin === 'entry' && pidOf[String(l.entry_id)]) l.purchase_id = pidOf[String(l.entry_id)]; });
+  }
   loans.sort(function (a, b) { return a.date < b.date ? 1 : (a.date > b.date ? -1 : 0); });
   return loans;
 }

@@ -9,8 +9,8 @@ const src = fs.readFileSync(path.join(__dirname, "..", "..", "docs", "app.js"), 
 const start = /async function startEditEntry[\s\S]*?\n}\n/.exec(src)[0];
 
 test("the form says Loading until splits and tags are in, and the trip is set only after", () => {
-  const loading = start.indexOf('setEntryLoading_(!Array.isArray(entry.tagIds)');
-  const wait = start.indexOf("await Promise.all([splitsPromise || [], tagsPromise])");
+  const loading = start.indexOf('setEntryLoading_(partsLoad || !Array.isArray(entry.tagIds)');   // (a split purchase also waits for its parts)
+  const wait = start.indexOf("await Promise.all([splitsPromise || [], tagsPromise, partsLoad])");
   const ready = start.indexOf('setEntryLoading_("");');
   const trip = start.indexOf("setTripPick_(entry.trip_id)");
   assert.ok(loading > 0 && wait > loading && ready > wait && trip > ready, "loading → wait → form → trip");

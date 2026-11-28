@@ -274,6 +274,18 @@
             <p class="hint" id="refund-of-line" hidden></p>
           </div>
 
+          <!-- Split by category (owner's plan, 2026-11-27): one purchase in several categories; the Amount is the whole purchase. -->
+          <div id="parts-field" hidden>
+            <button type="button" class="add-inline" id="parts-open-btn" data-i18n="parts.open">Split into categories</button>
+            <div id="parts-detail" hidden>
+              <label data-i18n="parts.title">Categories in this purchase</label>
+              <div id="parts-list"></div>
+              <p class="hint" id="parts-left" aria-live="polite"></p>
+              <button type="button" class="add-inline" id="parts-add-btn" data-i18n="parts.add">+ Add a category</button>
+              <button type="button" class="add-inline" id="parts-remove-btn" data-i18n="parts.remove">Only one category</button>
+            </div>
+          </div>
+
           <label for="date" id="entry-date-label" data-i18n="field.date">Date</label>
           <input type="date" id="date" required>
           <div id="entry-opening-row" hidden>
@@ -2190,6 +2202,25 @@
   </div>
 
   <!-- The one friends screen (owner, 2026-11-19): everyone by name with a search, like the currency screen; "More…" and the friend boxes open it. -->
+  <!-- Split by category: one part shared with friends (owner, 2026-11-27). -->
+  <div id="part-share-backdrop" class="currency-modal-backdrop" hidden>
+    <div class="currency-modal">
+      <div class="currency-modal-header">
+        <span id="part-share-title" data-i18n="parts.shareTitleGeneric">Share this part</span>
+        <button type="button" id="part-share-close" class="currency-modal-close" data-i18n-aria-label="common.close" aria-label="Close">✕</button>
+      </div>
+      <label data-i18n="parts.shareWho">Shared with</label>
+      <div class="tags-list" id="part-share-chips"></div>
+      <div class="type-tabs budget-period-tabs" id="part-share-tabs" hidden>
+        <button type="button" class="type-tab active" data-mode="equal" data-i18n="split.equal">Equal</button>
+        <button type="button" class="type-tab" data-mode="custom" data-i18n="split.custom">Custom</button>
+      </div>
+      <div id="part-share-rows"></div>
+      <p class="hint" id="part-share-sum" aria-live="polite"></p>
+      <button type="button" class="primary" id="part-share-done" data-i18n="currency.done">Done</button>
+    </div>
+  </div>
+
   <div id="friend-screen-backdrop" class="currency-modal-backdrop" hidden>
     <div class="currency-modal currency-screen friend-screen">
       <div class="currency-modal-header">

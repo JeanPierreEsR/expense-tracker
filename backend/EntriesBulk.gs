@@ -63,15 +63,23 @@ function previewEntriesDelete(payload) {
 }
 
 function deleteEntries(payload) {
-  var ids = bulkEntryIds_(payload);
+  var ids = expandPurchaseIds_(bulkEntryIds_(payload));   // one part of a split purchase takes the whole purchase (PurchaseParts.gs)
   var out = { deleted: [], kept: [] };
   var del = [];
+  var keptPurchase = {};
   ids.forEach(function (id) {
     var entry = getEntryById_(id);
     if (!entry) { out.kept.push({ id: id, reason: 'missing' }); return; }
     var reason = entryBulkVerdict_(entry);
-    if (reason) { out.kept.push({ id: id, reason: reason }); return; }
+    if (reason) { out.kept.push({ id: id, reason: reason }); if (purchaseIdOf_(entry)) keptPurchase[purchaseIdOf_(entry)] = true; return; }
     del.push(id);
+  });
+  // A purchase is never left half deleted: when one of its parts must be deleted on its own, the others stay with it.
+  del = del.filter(function (id) {
+    var pid = purchaseIdOf_(getEntryById_(id));
+    if (!pid || !keptPurchase[pid]) return true;
+    out.kept.push({ id: id, reason: 'repaidLoans' });
+    return false;
   });
   if (!del.length) return out;
   // The safety copy FIRST: if it cannot be written, nothing is deleted (an Undo that might not work is worse than none).

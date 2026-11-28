@@ -756,6 +756,54 @@ input[type="date"] {
   text-align: right;
 }
 
+/* Split by category (2026-11-27): one row per part, category and amount side by side, its sharing line under it. */
+.part-row {
+  margin-top: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.part-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.part-line .part-cat {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.part-line .part-amt {
+  flex: 0 0 104px;
+  width: 104px;
+  text-align: right;
+}
+.part-line .part-amt[readonly] {
+  background: var(--surface);
+  color: var(--text-2);
+}
+.part-line .part-amt.part-amt-bad { color: var(--danger); }
+.part-line .part-del {
+  flex: 0 0 44px;
+  width: 44px;
+  height: 44px;
+  border: none;
+  background: none;
+  color: var(--muted);
+  font-size: 1rem;
+}
+.part-row .part-share { margin-top: 4px; }
+#part-share-tabs { margin: 12px 0 4px; }
+.part-share-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 44px;
+}
+.part-share-row input {
+  width: 110px;
+  text-align: right;
+}
+
 .loan-row {
   display: flex;
   justify-content: space-between;

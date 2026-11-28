@@ -189,6 +189,7 @@ function stmtFromStatement_(e) { return String(e.external_id || '').indexOf('stm
  */
 function matchStatements_(statements, entries, opts) {
   opts = opts || {};
+  entries = stmtCollapsePurchases_(entries);   // a split purchase is one payment to the bank (PurchaseParts.gs)
   var loanTransferIds = opts.loanTransferIds || {};
   var repaymentTotals = opts.repaymentTotals || {};   // transfer entry id -> { gapEntryId, total }: a repayment that came in two entries
   var used = {};
