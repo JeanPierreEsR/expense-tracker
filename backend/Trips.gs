@@ -791,7 +791,12 @@ function ensureTripGroupFriend_(trip) {
 }
 
 function ensureAllTripGroupFriends_() {
-  getTripRows_().forEach(function (t) { ensureTripGroupFriend_(t); });
+  // Friends read once for all trips (2026-11-28); only a trip with no group friend yet goes through the full check.
+  var trips = getTripRows_();
+  if (!trips.length) return;
+  var have = {};
+  getAllRows('Friends').forEach(function (f) { if (f.trip_id) have[f.trip_id] = true; });
+  trips.forEach(function (t) { if (!have[t.id]) ensureTripGroupFriend_(t); });
 }
 
 function tripGroupFriend_(tripId) {
