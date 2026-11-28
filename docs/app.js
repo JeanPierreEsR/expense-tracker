@@ -39183,6 +39183,14 @@ const CHOOSE_SHEET_ = {
   pool: () => repaymentLoans_
 };
 const chooseEl_ = (ctx, part) => document.getElementById(`${ctx.id}-choose${part ? "-" + part : ""}`);
+// While a person's loans are on their way (owner, 2026-11-28): a line says so where "Choose which loans this pays" will appear, so
+// someone saving fast knows it is coming. Needs review → Mark as repayment and the "+" form fetch them when the person is picked.
+function chooseLoading_(ctx, on) {
+  const el = chooseEl_(ctx, "loading");
+  if (!el) return;
+  if (on) el.textContent = tr("settle.loansLoading");
+  el.hidden = !on;
+}
 // "Pay only the selected loans" (owner, 2026-11-28): in every loan list (the Loans sheet, Home's "+" and an entry turned into a
 // repayment, Needs review → Mark as repayment), where the backend takes `limit` (`repayLimit`). On: nothing spills onto the other loans; what the ticked ones cannot take is the extra.
 const chooseLimitOn_ = (ctx) => { const box = chooseEl_(ctx, "limit"); return !!box && !chooseEl_(ctx, "limit-row").hidden && box.checked; };
@@ -39418,8 +39426,10 @@ function syncEntryRepayChoose_() {
     if (!entryRepayHistory_.has(fid)) {
       entryRepayHistory_.set(fid, null);
       callApi("getFriendRepaymentHistory", { friendId: fid }).then((h) => { entryRepayHistory_.set(fid, h || { loans: [], repayments: [] }); syncEntryRepayChoose_(); })
-        .catch(() => { entryRepayHistory_.delete(fid); });
+        .catch(() => { entryRepayHistory_.delete(fid); chooseLoading_(CHOOSE_ENTRY_, false); });
     }
+    const waiting = entryRepayHistory_.get(fid) === null;
+    chooseLoading_(CHOOSE_ENTRY_, waiting);
     const line = entryRepayEditLine_();
     if (!line) { resetChoose_(CHOOSE_ENTRY_, false); entryRepayKey_ = ""; return; }
     if (entryRepayKey_ === "edit|" + line.id) return;   // keep what was ticked
@@ -39430,14 +39440,15 @@ function syncEntryRepayChoose_() {
   if (entryRepayKey_.startsWith("edit|")) { resetChoose_(CHOOSE_ENTRY_, false); entryRepayKey_ = ""; }
   const friendId = document.getElementById("repayment-friend").value;
   const on = repaymentActive_() && transferKind_() === "repayment" && (entryFormIsNewEntry_() || entryConvertCanChoose_(friendId)) && !entryOpeningOn_() && friendId && friendId !== "__add__";
-  if (!on) { resetChoose_(CHOOSE_ENTRY_, false); entryRepayKey_ = ""; return; }
+  if (!on) { resetChoose_(CHOOSE_ENTRY_, false); chooseLoading_(CHOOSE_ENTRY_, false); entryRepayKey_ = ""; return; }
   const key = `${friendId}|${repaymentDirectionChoice}|${CHOOSE_ENTRY_.cur()}`;
   if (!entryRepayLoans_.has(friendId)) {
     entryRepayLoans_.set(friendId, null);
     callApi("getFriendLoanDetail", { friendId }).then((loans) => { entryRepayLoans_.set(friendId, loans || []); syncEntryRepayChoose_(); })
-      .catch(() => { entryRepayLoans_.delete(friendId); });
+      .catch(() => { entryRepayLoans_.delete(friendId); if (document.getElementById("repayment-friend").value === friendId) chooseLoading_(CHOOSE_ENTRY_, false); });
   }
-  if (entryRepayLoans_.get(friendId) === null) { resetChoose_(CHOOSE_ENTRY_, false); return; }
+  if (entryRepayLoans_.get(friendId) === null) { resetChoose_(CHOOSE_ENTRY_, false); chooseLoading_(CHOOSE_ENTRY_, true); return; }
+  chooseLoading_(CHOOSE_ENTRY_, false);
   if (key === entryRepayKey_) return;   // same person, direction and currency: keep what was ticked
   entryRepayKey_ = key;
   resetChoose_(CHOOSE_ENTRY_, CHOOSE_ENTRY_.loans().length >= 2);
@@ -39457,7 +39468,7 @@ function entryConvertCanChoose_(friendId) {
 // Each new entry starts with a fresh list (the loans change after a repayment) and nothing ticked. Called by the form's reset, which
 // can run while the app is still starting, before these lines have run: then there is nothing to reset yet.
 function resetEntryRepayChoose_() {
-  try { entryRepayLoans_.clear(); entryRepayHistory_.clear(); entryRepayKey_ = ""; resetChoose_(CHOOSE_ENTRY_, false); } catch (e) { /* not set up yet */ }
+  try { entryRepayLoans_.clear(); entryRepayHistory_.clear(); entryRepayKey_ = ""; resetChoose_(CHOOSE_ENTRY_, false); chooseLoading_(CHOOSE_ENTRY_, false); } catch (e) { /* not set up yet */ }
 }
 // "Pay only the selected loans" on in the "+" form's list (open, with its switch on). Remembered at save time for the message after it.
 function entryRepayLimit_() {
@@ -40123,13 +40134,14 @@ function syncReviewRepayChoose_() {
   const friendId = document.getElementById("review-transfer-friend").value;
   const on = reviewTransferMode === "repay" && !!reviewTransferEntry && friendId && friendId !== "__add__" &&
     !!((meta && meta.capabilities) || {}).convertAllocations;
-  if (!on) { resetChoose_(CHOOSE_REVIEW_, false); reviewRepayKey_ = ""; return; }
+  if (!on) { resetChoose_(CHOOSE_REVIEW_, false); chooseLoading_(CHOOSE_REVIEW_, false); reviewRepayKey_ = ""; return; }
   if (!reviewRepayLoans_.has(friendId)) {
     reviewRepayLoans_.set(friendId, null);
     callApi("getFriendLoanDetail", { friendId }).then((loans) => { reviewRepayLoans_.set(friendId, loans || []); syncReviewRepayChoose_(); })
-      .catch(() => { reviewRepayLoans_.delete(friendId); });
+      .catch(() => { reviewRepayLoans_.delete(friendId); if (document.getElementById("review-transfer-friend").value === friendId) chooseLoading_(CHOOSE_REVIEW_, false); });
   }
-  if (reviewRepayLoans_.get(friendId) === null) { resetChoose_(CHOOSE_REVIEW_, false); return; }
+  if (reviewRepayLoans_.get(friendId) === null) { resetChoose_(CHOOSE_REVIEW_, false); chooseLoading_(CHOOSE_REVIEW_, true); return; }
+  chooseLoading_(CHOOSE_REVIEW_, false);
   if (friendId === reviewRepayKey_) return;   // same person: keep what was ticked
   reviewRepayKey_ = friendId;
   resetChoose_(CHOOSE_REVIEW_, CHOOSE_REVIEW_.loans().length >= 2);
