@@ -40252,8 +40252,9 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
 
   const entryId = reviewTransferEntry.id;
   const currency = reviewTransferEntry.currency;
-  const description = document.getElementById("review-transfer-description").value.trim() ||
-    reviewTransferEntry.description || "";
+  // What the box holds (filled in with the bank's text when the window opened): emptied on purpose = no description, so the row shows
+  // just "Repayment from Ana" (owner, 2026-11-28: the bank's text came back after being deleted).
+  const description = document.getElementById("review-transfer-description").value.trim();
   const incoming = reviewEntryArrived_(reviewTransferEntry);
   const mode = reviewTransferMode;
   // The loans the person ticked (none = oldest first); read before the window closes.
