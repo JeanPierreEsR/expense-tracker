@@ -39126,6 +39126,9 @@ const CHOOSE_SHEET_ = {
   pool: () => repaymentLoans_
 };
 const chooseEl_ = (ctx, part) => document.getElementById(`${ctx.id}-choose${part ? "-" + part : ""}`);
+// "Pay only the selected loans" (owner, 2026-11-28): offered where the panel has its switch (Needs review → Mark as repayment) and the
+// backend takes `limit` (`repayLimit`). On: nothing spills onto the other loans; what the ticked ones cannot take is the extra.
+const chooseLimitOn_ = (ctx) => { const box = chooseEl_(ctx, "limit"); return !!box && !chooseEl_(ctx, "limit-row").hidden && box.checked; };
 
 // The ticked loans are paid in order (oldest first) until the payment runs out: no amounts to type per loan.
 function chooseAssignments_(ctx) {
@@ -39153,6 +39156,16 @@ function renderChooseSummary_(ctx) {
     const a = assignments.find((x) => x.loan_id === input.dataset.loan);
     input.closest("label").querySelector(".settle-choose-assigned").textContent = a ? `${cur} ${moneyFmt(a.amount)}` : "";
   });
+  const limited = chooseLimitOn_(ctx);
+  const hint = chooseEl_(ctx, "hint");
+  if (hint) hint.textContent = tr(limited ? "apply.hint" : "settle.chooseHint");   // no "the rest goes to the others" while it does not
+  if (limited) {
+    const gap = Math.round(Math.max(0, paid - assigned) * 100) / 100;
+    const line = assignments.length ? [tr("settle.chooseAssigned", { assigned: `${cur} ${moneyFmt(assigned)}` })] : [tr("reassign.limitNone")];
+    if (assignments.length && gap > 0.004) line.push(tr(ctx.dir() === "they_owe_me" ? "reassign.limitGapIncome" : "reassign.limitGapExpense", { amount: `${cur} ${moneyFmt(gap)}` }));
+    chooseEl_(ctx, "summary").textContent = line.join(" · ");
+    return;
+  }
   // What is left of the payment continues oldest-first over the loans that were not selected: name them, so nothing surprises.
   let rest = Math.round(Math.max(0, paid - assigned) * 100) / 100;
   // The payment covers everything owed: one short line, not every loan named (testers 2.68.2: 15 loans in one long line).
@@ -39190,6 +39203,10 @@ function resetChoose_(ctx, show) {
   chooseEl_(ctx, "list").innerHTML = "";
   chooseEl_(ctx, "btn").textContent = tr("settle.chooseLoans");
   chooseEl_(ctx).hidden = !show;
+  if (chooseEl_(ctx, "limit")) {
+    chooseEl_(ctx, "limit").checked = false;
+    chooseEl_(ctx, "limit-row").hidden = !((meta && meta.capabilities) || {}).repayLimit;
+  }
 }
 function chooseOpenOrClose_(ctx) {
   const panel = chooseEl_(ctx, "panel");
@@ -40050,6 +40067,7 @@ function syncReviewRepayChoose_() {
 }
 document.getElementById("review-transfer-friend").addEventListener("change", syncReviewRepayChoose_);
 document.getElementById("review-transfer-choose-btn").addEventListener("click", () => chooseOpenOrClose_(CHOOSE_REVIEW_));
+document.getElementById("review-transfer-choose-limit").addEventListener("change", () => renderChooseSummary_(CHOOSE_REVIEW_));
 document.getElementById("review-transfer-amount").addEventListener("input", () => {
   if (!document.getElementById("review-transfer-choose-panel").hidden) renderChooseSummary_(CHOOSE_REVIEW_);
 });
@@ -40156,6 +40174,8 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
   // The loans the person ticked (none = oldest first); read before the window closes.
   const chosen = mode === "repay" && !document.getElementById("review-transfer-choose").hidden &&
     !document.getElementById("review-transfer-choose-panel").hidden ? chooseAssignments_(CHOOSE_REVIEW_) : [];
+  const limit = mode === "repay" && !document.getElementById("review-transfer-choose-panel").hidden && chooseLimitOn_(CHOOSE_REVIEW_);
+  if (limit && !chosen.length) { errorEl.textContent = tr("reassign.limitNone"); return; }
   if (mode === "repay" && !chosen.length && !(await askRepayLoansFirst_(CHOOSE_REVIEW_))) return;   // the window stays open
   closeReviewTransferModal();
   dropReviewCard_(entryId);   // gone at once; a refusal's refresh below brings it back
@@ -40177,11 +40197,13 @@ document.getElementById("review-transfer-save-btn").addEventListener("click", as
         description,
         require_owed: incoming,
         overpay_pending_ok: true,
-        ...(chosen.length ? { allocations: chosen } : {})
+        ...(chosen.length ? { allocations: chosen } : {}),
+        ...(limit ? { limit: true } : {})
       });
       if (result.overpaid > 0.004) {
         convDebtOutcome_ = "over";
-        showAppMessage_(tr(incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing", { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
+        const key = limit ? (incoming ? "review.limitedExtraIncoming" : "review.limitedExtraOutgoing") : (incoming ? "review.overpaidIncoming" : "review.overpaidOutgoing");
+        showAppMessage_(tr(key, { name: friendName, cur: currency, amount: moneyFmt(result.overpaid) }));
       }
     } else {
       await callApi("convertEntryToLoan", {

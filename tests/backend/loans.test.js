@@ -682,3 +682,36 @@ test("an earlier overpayment entry is linked to its repayment only when it fits 
   assert.equal(line.gap && line.gap.amount, 30, "matched to the one income entry");
   assert.equal(line.amount, 130);
 });
+
+// ---- "Pay only the selected loans" on a NEW repayment (owner, 2026-11-28: Needs review → Mark as repayment) ----
+test("a repayment limited to the chosen loans leaves the others alone and books the rest as the extra", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const a = cashLoan(rt, data, friend, 100, "2026-09-01");
+  const b = cashLoan(rt, data, friend, 400, "2026-09-02");
+  const c = cashLoan(rt, data, friend, 80, "2026-09-03");
+  const out = rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 520.5, date: today(), currency: "PEN",
+    payment_method_id: data.pms[3].id, limit: true, overpay_pending_ok: true,
+    allocations: [{ loan_id: a.id, amount: 100 }, { loan_id: b.id, amount: 400 }] });
+  assert.equal(paidOn(rt, c.id), 0, "the unchosen loan is untouched");
+  assert.ok(Math.abs(out.overpaid - 20.5) < 0.005);
+  assert.equal(out.overpayment_entry.type, "income");
+  assert.equal(out.overpayment_entry.status, "pending");
+  const rows = rt.rows("Settlements").filter((s) => [a.id, b.id].includes(s.loan_id));
+  assert.equal(rows.length, 2);
+  assert.ok(rows.every((s) => String(s.limited) === "1" && s.gap_entry_id === out.overpayment_entry.id), "remembered as limited, with its extra");
+  const transfer = rt.rows("Entries").find((e) => e.id === rows[0].transfer_entry_id);
+  assert.ok(Math.abs(Number(transfer.amount) - 500) < 0.005, "the money entry holds only what the loans took");
+});
+
+test("without limit the same choice still spills the rest onto the oldest other loan", () => {
+  const { rt, data } = freshApp();
+  const friend = newFriend(rt);
+  const a = cashLoan(rt, data, friend, 100, "2026-09-01");
+  const b = cashLoan(rt, data, friend, 400, "2026-09-02");
+  const c = cashLoan(rt, data, friend, 80, "2026-09-03");
+  const out = rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 520.5, date: today(), currency: "PEN",
+    payment_method_id: data.pms[3].id, allocations: [{ loan_id: a.id, amount: 100 }, { loan_id: b.id, amount: 400 }] });
+  assert.ok(Math.abs(paidOn(rt, c.id) - 20.5) < 0.005);
+  assert.equal(out.overpaid, 0);
+});

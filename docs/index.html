@@ -4033,8 +4033,15 @@
         <div id="review-transfer-choose" hidden>
           <button type="button" class="add-inline" id="review-transfer-choose-btn" data-i18n="settle.chooseLoans">Choose which loans this pays</button>
           <div id="review-transfer-choose-panel" hidden>
-            <p class="hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
+            <p class="hint" id="review-transfer-choose-hint" data-i18n="settle.chooseHint">Select the loans this payment is for. They are paid oldest first, until the payment runs out. Whatever is left goes to the oldest of the others.</p>
             <div id="review-transfer-choose-list"></div>
+            <!-- "Pay only the selected loans" (owner, 2026-11-28), as in the Repayment history: the rest is the extra, not the other loans. -->
+            <div class="reassign-limit-box" id="review-transfer-choose-limit-row" hidden>
+              <label class="reassign-limit-label">
+                <input type="checkbox" id="review-transfer-choose-limit">
+                <span data-i18n="reassign.limit">Pay only the selected loans</span>
+              </label>
+            </div>
             <p class="hint" id="review-transfer-choose-summary" aria-live="polite"></p>
           </div>
         </div>
