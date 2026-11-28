@@ -203,20 +203,16 @@ function companyDefaultOnConfirm_(entry, personal) {
 // owed = every LENDER (Business 2 piece 3; SUNAT's withholding included) with what the company still owes them, per currency, never
 // converted, by name; owedTotals = the same added per currency. funding = every project still open with the amount "still to finance"
 // the person typed and the day it was true (the app never works it out: owner, plan "Fase 1 en detalle", answer 4: one per project).
-function companyOverview_(startDate, endDate) {
+// Everything the company owes, per person and currency, never converted (owner, 2026-11-27; testers 2.80.0, Lucho: a loan from an
+// ordinary contact was left out): every person it owes money to, whatever their role (lenders, partners, contacts), the tax office's
+// withholding as what it is, and the guarantee funds kept from subcontractors. `past` (YYYY-MM-DD) = what was owed at the end of that
+// day (a period that ended, the month close: a statement shared for a past month never changes afterwards, testers 2.68.2, Elena);
+// '' = now. Answers { owed: [{ friend_id, name, role, lines: [{ currency, amount }] }], owedTotals: [{ currency, amount }] }.
+function companyOwed_(past) {
   var owed = [], totals = {};
-  // Lenders AND partners (owner, 2026-11-24: the card read as the company's whole debt and left out ~31,000 owed to partners); the
-  // tax office's withholding shows as what it is. A period that ended shows what was owed on its last day, so a statement shared
-  // for a past month never changes afterwards (testers 2.68.2, Elena).
-  var past = endDate && String(endDate).slice(0, 10) < businessToday_() ? String(endDate).slice(0, 10) : '';
   var asOf = past ? owedAsOf_(past) : null;
   var sunatId = companySunatId_();
-  var known = {};
-  getAllRows('Friends').forEach(function (x) { known[x.id] = true; });
   listLoanBalances({}).forEach(function (f) {
-    // A debt typed by hand in the Sheet for a person who does not exist still shows here, as "(unknown person)", so this card and
-    // the loan totals agree (testers 2.68.2, Ingrid: 999 counted in the totals and nowhere else).
-    if (f.role !== 'lender' && f.role !== 'partner' && known[f.friend_id]) return;
     var nets = asOf ? (asOf[f.friend_id] || {}) : null;
     var lines = (nets ? Object.keys(nets).map(function (c) { return { currency: c, net: nets[c] }; }) : f.balances)
       .filter(function (b) { return b.net < -0.004; })
@@ -225,13 +221,23 @@ function companyOverview_(startDate, endDate) {
     lines.forEach(function (l) { totals[l.currency] = round2_((totals[l.currency] || 0) + l.amount); });
     owed.push({ friend_id: f.friend_id, name: f.friend_id === sunatId ? tr_('coOv.sunatOwed') : f.friend_name, role: f.role, lines: lines });
   });
-  // Guarantee funds kept from subcontractors are their money (Contracts.gs, owner's plan 2026-11-26): what is still to give back, now.
+  // Guarantee funds kept from subcontractors are their money (Contracts.gs, owner's plan 2026-11-26): what is still to give back.
   var held = {};
   contractsForApp_().forEach(function (c) {
-    if (!(c.retention_left > 0.004)) return;
+    var left = c.retention_left;
+    if (past) {
+      left = 0;
+      (c.payments || []).forEach(function (p) {
+        if (p.date > past) return;
+        if (p.kind === 'valuation') left += Number(p.retention_held) || 0;
+        else if (p.kind === 'retention_return') left -= Number(p.amount) || 0;
+      });
+      left = round2_(left);
+    }
+    if (!(left > 0.004)) return;
     var k = c.supplier_id;
     held[k] = held[k] || { friend_id: k, name: tr_('contract.owedName', { name: c.supplier || tr_('label.unknownFriend') }), role: 'supplier', lines: {} };
-    held[k].lines[c.currency] = round2_((held[k].lines[c.currency] || 0) + c.retention_left);
+    held[k].lines[c.currency] = round2_((held[k].lines[c.currency] || 0) + left);
   });
   Object.keys(held).forEach(function (k) {
     var lines = Object.keys(held[k].lines).map(function (cur) { return { currency: cur, amount: held[k].lines[cur] }; });
@@ -242,6 +248,13 @@ function companyOverview_(startDate, endDate) {
   var home = homeCurrency_();
   var owedTotals = Object.keys(totals).sort(function (a, b) { return a === home ? -1 : (b === home ? 1 : (a < b ? -1 : 1)); })
     .map(function (c) { return { currency: c, amount: totals[c] }; });
+  return { owed: owed, owedTotals: owedTotals };
+}
+
+function companyOverview_(startDate, endDate) {
+  var past = endDate && String(endDate).slice(0, 10) < businessToday_() ? String(endDate).slice(0, 10) : '';
+  var debts = companyOwed_(past);
+  var owed = debts.owed, owedTotals = debts.owedTotals, home = homeCurrency_();
   var funding = getProjectRows_().filter(function (p) { return String(p.status || 'active') !== 'closed'; }).map(function (p) {
     var has = p.funding_gap !== undefined && p.funding_gap !== '' && p.funding_gap !== null;
     return { project_id: String(p.id), company_id: String(p.company_id || ''), name: String(p.name || ''), emoji: String(p.emoji || ''),

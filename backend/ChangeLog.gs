@@ -16,7 +16,8 @@
 
 var CHANGE_LOG_TABLES_ = {
   'Entries': true, 'Loans': true, 'Settlements': true, 'Loan Installments': true,
-  'Contributions': true, 'Distributions': true, 'Project Splits': true
+  'Contributions': true, 'Distributions': true, 'Project Splits': true,
+  'Contract Payments': true   // testers 2.80.0: a valuation corrected after a month close read as "edited by hand"
 };
 var CHANGE_LOG_HEADERS_ = ['id', 'at', 'source', 'action', 'table', 'row_id', 'field', 'before', 'after', 'month'];
 var CHANGE_LOG_SKIP_FIELDS_ = { updated_at: true };
@@ -50,6 +51,8 @@ function changeText_(v) {
 
 function changeMonthOf_(row) {
   var d = row && changeText_(row.date);
+  // A row with no date of its own (a contract payment) belongs to its expense's month.
+  if (!d && row && row.entry_id) { var e = getEntryById_(String(row.entry_id)); d = e ? changeText_(e.date) : ''; }
   return /^\d{4}-\d{2}/.test(d || '') ? d.slice(0, 7) : '';
 }
 

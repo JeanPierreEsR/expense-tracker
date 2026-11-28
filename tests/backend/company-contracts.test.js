@@ -79,3 +79,32 @@ test("Overview's What is owed counts the guarantee still to give back", () => {
   assert.equal(row.lines[0].amount, 1500);
   assert.ok(co.owedTotals.some((t) => t.currency === "PEN" && t.amount >= 1500));
 });
+
+// testers 2.80.0 (Elena): a refused contract payment leaves nothing saved; the contract's figures have ceilings.
+test("a valuation that does not add up is refused before the expense is written", () => {
+  const rt = companyCopy();
+  const c = rt.api("saveContract", { project_id: project(rt), supplier_name: "Encofrados Lima", amount: 100000, currency: "PEN", advance_pct: 20, retention_pct: 5 });
+  const before = rt.rows("Entries").length;
+  assert.throws(() => pay(rt, 22000, { contract_id: c.id, kind: "valuation", gross: 30000, advance_amortized: 0, retention_held: 1500 }), /valuation minus/);
+  assert.equal(rt.rows("Entries").length, before, "no expense left behind");
+  const e = pay(rt, 28500, { contract_id: c.id, kind: "valuation", gross: 30000, advance_amortized: 0, retention_held: 1500 });
+  // an edit that breaks the link is refused and changes nothing
+  assert.throws(() => rt.api("saveEntryAll", { kind: "update", id: e.id, fields: { amount: 28000 } }), /valuation minus/);
+  assert.equal(Number(rt.rows("Entries").find((x) => x.id === e.id).amount), 28500);
+});
+
+test("ceilings: advance, advance taken back, valued, guarantee kept and given back", () => {
+  const rt = companyCopy();
+  const c = rt.api("saveContract", { project_id: project(rt), supplier_name: "Encofrados Lima", amount: 100000, currency: "PEN", advance_pct: 20, retention_pct: 5 });
+  assert.throws(() => pay(rt, 25000, { contract_id: c.id, kind: "advance" }), /advance/);
+  pay(rt, 20000, { contract_id: c.id, kind: "advance" });
+  assert.throws(() => pay(rt, 1, { contract_id: c.id, kind: "advance" }), /advance/);
+  assert.throws(() => pay(rt, 4000, { contract_id: c.id, kind: "valuation", gross: 30000, advance_amortized: 25000, retention_held: 1000 }), /still to take back/);
+  assert.throws(() => pay(rt, 10000, { contract_id: c.id, kind: "valuation", gross: 110000, advance_amortized: 20000, retention_held: 80000 }), /contract amount/);
+  pay(rt, 22500, { contract_id: c.id, kind: "valuation", gross: 30000, advance_amortized: 6000, retention_held: 1500 });
+  assert.throws(() => pay(rt, 2000, { contract_id: c.id, kind: "retention_return" }), /guarantee kept/);
+  pay(rt, 1500, { contract_id: c.id, kind: "retention_return" });
+  const v = view(rt);
+  assert.equal(v.retention_left, 0);
+  assert.equal(v.advance_left, 14000);
+});

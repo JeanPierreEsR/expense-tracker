@@ -481,10 +481,10 @@
 
           <!-- Detracción (company copies, an income in soles; backend/Detractions.gs). -->
           <div id="detraction-field" hidden>
-            <label class="checkbox-row">
+            <div class="info-row"><label class="checkbox-row">
               <input type="checkbox" id="detraction-toggle">
               <span data-i18n="detr.toggle">With detracción</span>
-            </label>
+            </label><button type="button" class="info-btn" data-info="detraction" data-i18n-aria-label="info.detraction.name" aria-label="About the detracción" aria-expanded="false"></button></div>
             <div id="detraction-detail" hidden>
               <label for="detraction-rate" data-i18n="detr.rate">Detracción (%)</label>
               <input type="text" inputmode="decimal" id="detraction-rate" placeholder="4">
@@ -2730,6 +2730,15 @@
         </div>
         <label for="partner-business" data-i18n="field.business">Company / project</label>
         <select id="partner-business"></select>
+        <!-- Only when editing one already recorded (owner, 2026-11-27): the money movement's account, date and description. -->
+        <div id="partner-edit-box" hidden>
+          <label for="partner-account" data-i18n="field.paymentMethod">Account or card</label>
+          <select id="partner-account"></select>
+          <label for="partner-date" data-i18n="field.date">Date</label>
+          <input type="date" id="partner-date">
+          <label for="partner-description" data-i18n="field.description">Description</label>
+          <input type="text" id="partner-description" maxlength="500">
+        </div>
         <p class="hint error-text" id="partner-error"></p>
         <button type="button" class="primary" id="partner-save" data-i18n="common.save">Save</button>
       </div>

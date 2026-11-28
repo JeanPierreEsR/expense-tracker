@@ -117,7 +117,7 @@ function contractView_(c, entriesById, people) {
     description: String(c.description || ''), amount: Number(c.amount) || 0, currency: String(c.currency || ''),
     advance_pct: Number(c.advance_pct) || 0, retention_pct: Number(c.retention_pct) || 0, note: String(c.note || ''),
     valued: t.valued, paid: t.paid, advance_paid: t.advance_paid, advance_amortized: t.advance_amortized,
-    advance_left: round2_(t.advance_paid - t.advance_amortized), retention_left: round2_(t.retained - t.returned),
+    advance_left: round2_(t.advance_paid - t.advance_amortized), retention_left: round2_(t.retained - t.returned), retained: t.retained, returned: t.returned,
     to_pay: round2_((Number(c.amount) || 0) - t.paid),
     payments: pays.map(function (p) {
       return { entry_id: p.entry.id, kind: p.row.kind, date: String(p.entry.date).slice(0, 10), amount: Math.abs(Number(p.entry.amount)) || 0,
@@ -144,16 +144,12 @@ function listProjectContracts(payload) {
   return { contracts: contractsForApp_().filter(function (c) { return c.project_id === pid; }) };
 }
 
-// A save's link to a contract (createEntry / an update): undefined = leave it; null or '' = no contract; else
-// { contract_id, kind, gross?, advance_amortized?, retention_held? }. Checked before it is kept.
-function applyContractPaymentFromSave_(entryId, cp) {
-  if (cp === undefined) return;
-  if (!cp) {
-    if (contractPaymentRows_().length) deleteRowsWhere_('Contract Payments', function (r) { return r.entry_id === entryId; });
-    return;
-  }
-  if (!isCompanyCopy_()) return;
-  var entry = getEntryById_(entryId);
+// The payment row a save asks for, checked against the expense AS IT WILL BE (`entry`; testers 2.80.0: the check ran after the expense
+// was written, so a refused valuation left the expense saved and the phone said "not saved"). `entryId` = the expense being edited ('' for a
+// new one): its own earlier payment is left out of the contract's totals. Ceilings (testers 2.80.0, Elena): the advances up to the contract's
+// advance %, the advance taken back up to what is left of it, the valued up to the contract amount, the guarantee kept up to the valuation,
+// the guarantee given back up to what was kept. Returns the row to write.
+function contractPaymentRowFor_(entry, cp, entryId) {
   if (!entry || entry.type !== 'expense') throw new Error(tr_('contract.onlyExpense'));
   var contract = contractRows_().find(function (c) { return c.id === cp.contract_id; });
   if (!contract) throw new Error(tr_('contract.gone'));
@@ -161,13 +157,62 @@ function applyContractPaymentFromSave_(entryId, cp) {
   if (String(entry.currency || '').toUpperCase() !== String(contract.currency || '').toUpperCase()) throw new Error(tr_('contract.otherCurrency'));
   var kind = String(cp.kind || '');
   if (!CONTRACT_KINDS_[kind]) throw new Error(tr_('contract.pickKind'));
-  var row = { contract_id: contract.id, entry_id: entryId, kind: kind, gross: '', advance_amortized: '', retention_held: '' };
-  if (kind === 'valuation') {
+  var amount = Math.abs(Number(entry.amount)) || 0;
+  var cur = String(contract.currency || '');
+  var t = { adv: 0, amort: 0, valued: 0, held: 0, returned: 0 };
+  contractPaymentsOf_(contract.id).forEach(function (p) {
+    if (entryId && String(p.entry.id) === String(entryId)) return;
+    var amt = Math.abs(Number(p.entry.amount)) || 0;
+    if (p.row.kind === 'advance') t.adv += amt;
+    else if (p.row.kind === 'retention_return') t.returned += amt;
+    else { t.valued += Number(p.row.gross) || 0; t.amort += Number(p.row.advance_amortized) || 0; t.held += Number(p.row.retention_held) || 0; }
+  });
+  var over = function (a, b) { return round2_(a) - round2_(b) > 0.009; };
+  var money = function (n) { return formatAmountText_(Math.max(0, round2_(n)), cur); };
+  var row = { contract_id: contract.id, entry_id: entryId || '', kind: kind, gross: '', advance_amortized: '', retention_held: '' };
+  if (kind === 'advance') {
+    var maxAdv = round2_((Number(contract.amount) || 0) * (Number(contract.advance_pct) || 0) / 100);
+    if (over(t.adv + amount, maxAdv)) throw new Error(tr_('contract.overAdvance', { max: money(maxAdv - t.adv) }));
+  } else if (kind === 'retention_return') {
+    if (over(t.returned + amount, t.held)) throw new Error(tr_('contract.overReturn', { max: money(t.held - t.returned) }));
+  } else {
     var gross = Number(cp.gross), amort = Number(cp.advance_amortized) || 0, held = Number(cp.retention_held) || 0;
     if (!(isFinite(gross) && gross > 0) || amort < 0 || held < 0) throw new Error(tr_('err.validAmount'));
-    if (Math.abs(round2_(gross - amort - held) - Math.abs(Number(entry.amount))) > 0.01) throw new Error(tr_('contract.netMismatch'));
+    if (Math.abs(round2_(gross - amort - held) - amount) > 0.01) throw new Error(tr_('contract.netMismatch'));
+    if (over(t.valued + gross, Number(contract.amount) || 0)) throw new Error(tr_('contract.overValued', { max: money((Number(contract.amount) || 0) - t.valued) }));
+    if (over(t.amort + amort, t.adv)) throw new Error(tr_('contract.overAmortized', { max: money(t.adv - t.amort) }));
+    if (over(held, gross)) throw new Error(tr_('contract.overHeld'));
     row.gross = round2_(gross); row.advance_amortized = round2_(amort); row.retention_held = round2_(held);
   }
+  return row;
+}
+
+// Before anything is written (createEntry / an update). `entry` = the expense as it will be; `cp` as in applyContractPaymentFromSave_.
+// An edit that does not send it keeps the link it has: the edited expense must still fit it (another project, another amount...).
+function checkContractPaymentBeforeSave_(entry, cp, entryId) {
+  if (!isCompanyCopy_()) return;
+  if (cp === undefined) {
+    if (!entryId || !contractPaymentRows_().length) return;
+    var have = contractPaymentRows_().find(function (r) { return r.entry_id === entryId; });
+    if (!have) return;
+    cp = { contract_id: have.contract_id, kind: have.kind, gross: have.gross, advance_amortized: have.advance_amortized, retention_held: have.retention_held };
+  }
+  if (!cp) return;
+  contractPaymentRowFor_(entry, cp, entryId);
+}
+
+// A save's link to a contract (createEntry / an update): undefined = leave it; null or '' = no contract; else
+// { contract_id, kind, gross?, advance_amortized?, retention_held? }. Checked again here (the check before the write is what refuses in
+// time; this one only writes what passed).
+function applyContractPaymentFromSave_(entryId, cp) {
+  if (cp === undefined) return;
+  if (!cp) {
+    if (contractPaymentRows_().length) deleteRowsWhere_('Contract Payments', function (r) { return r.entry_id === entryId; });
+    return;
+  }
+  if (!isCompanyCopy_()) return;
+  var row = contractPaymentRowFor_(getEntryById_(entryId), cp, entryId);
+  row.entry_id = entryId;
   ensureBusinessSheets_();
   var existing = contractPaymentRows_().find(function (r) { return r.entry_id === entryId; });
   if (existing) updateRowFields_('Contract Payments', existing.id, row);
