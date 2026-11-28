@@ -556,6 +556,7 @@ var BACKEND_STRINGS_ = {
   "parts.notThisOne": { en: "This entry can't be split into categories.", es: "Este movimiento no se puede dividir en categorías." },
   "parts.badPart": { en: "One of the parts could not be read. Open the entry again and save it.", es: "No se pudo leer una de las partes. Abre el movimiento otra vez y guárdalo." },
   "parts.badAmount": { en: "Every part needs an amount above 0.", es: "Cada parte necesita un monto mayor que 0." },
+  "parts.undoRepaid": { en: "A friend already repaid part of this purchase, so it can't go back to Needs review. To start over, delete it: you'll be asked what to do with that repayment.", es: "Un amigo ya devolvió parte de esta compra, así que no puede volver a Por revisar. Para empezar de nuevo, elimínala: te preguntaremos qué hacer con esa devolución." },
   "parts.pickCategory": { en: "Pick a category for every part.", es: "Elige una categoría para cada parte." },
   "loan.splitTooLarge": { en: "The split ({split}) is larger than the expense ({amount}).", es: "La repartición ({split}) es mayor que el gasto ({amount})." },
   "loan.amountBelowSettled": { en: "This loan already has {settled} repaid or forgiven — the amount can't be lower than that. Move or lower a repayment, or undo a forgiveness, first.", es: "Este préstamo ya tiene {settled} repagado o perdonado: el monto no puede ser menor. Mueve o baja un repago, o deshaz un perdón, primero." },

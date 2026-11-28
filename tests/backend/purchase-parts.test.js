@@ -160,7 +160,7 @@ test("Needs review (step 2): a waiting purchase confirmed as a split purchase ke
   assert.equal(t.row(partId), undefined);
 });
 
-test("Undo of a split confirm with a part shared with a friend is refused, like any shared entry", () => {
+test("Undo of a split confirm with parts shared with a friend: back to one waiting item, the friend's debts gone", () => {
   const t = setup();
   const friend = t.rt.api("addFriend", { name: "Parts Friend " + Math.random().toString(36).slice(2, 6) });
   const e = t.rt.api("createEntry", t.fields({ amount: 160 }));
@@ -168,7 +168,26 @@ test("Undo of a split confirm with a part shared with a friend is refused, like 
   const partId = uuid();
   t.rt.api("saveEntryAll", { kind: "confirm", id: e.id, fields: { amount: 120, category_id: t.gifts }, splits: [], tag_ids: [],
     parts: [{ id: partId, category_id: t.shopping, amount: 40, splits: [{ friend_id: friend.id, amount: 20 }] }] });
-  assert.throws(() => t.rt.api("unconfirmEntry", { id: e.id }));
+  t.rt.api("saveEntrySplits", { entryId: e.id, splits: [{ friend_id: friend.id, amount: 60 }] });
+  assert.equal(t.rt.api("getFriendLoanDetail", { friendId: friend.id }).length, 2);
+  t.rt.api("unconfirmEntry", { id: e.id });
+  assert.equal(t.row(e.id).status, "pending");
+  assert.equal(Number(t.row(e.id).amount), 160);
+  assert.equal(t.row(partId), undefined);
+  assert.equal(t.rt.api("getFriendLoanDetail", { friendId: friend.id }).length, 0, "no debt left from it");
+  assert.equal(t.rt.rows("Entry Splits").filter((s) => s.entry_id === e.id || s.entry_id === partId).length, 0);
+});
+
+test("Undo is refused once the friend really repaid part of the purchase; nothing changes", () => {
+  const t = setup();
+  const friend = t.rt.api("addFriend", { name: "Parts Friend " + Math.random().toString(36).slice(2, 6) });
+  const e = t.rt.api("createEntry", t.fields({ amount: 160 }));
+  t.rt.run(`setEntryField_(${JSON.stringify(e.id)}, 'status', 'pending'); setEntryField_(${JSON.stringify(e.id)}, 'source', 'email')`);
+  const partId = uuid();
+  t.rt.api("saveEntryAll", { kind: "confirm", id: e.id, fields: { amount: 120, category_id: t.gifts }, splits: [], tag_ids: [],
+    parts: [{ id: partId, category_id: t.shopping, amount: 40, splits: [{ friend_id: friend.id, amount: 20 }] }] });
+  t.rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 10, date: "2026-03-11", currency: "PEN", payment_method_id: t.pm.id });
+  assert.throws(() => t.rt.api("unconfirmEntry", { id: e.id }), /repaid/);
   assert.equal(t.row(e.id).status, "confirmed");
   assert.ok(t.row(partId));
 });
@@ -181,4 +200,21 @@ test("a bank e-mail of the whole amount is warned about as a possible copy of th
   const waiting = t.rt.api("listPendingEntries").find((x) => x.id === mail.id);
   assert.ok(waiting, "the e-mail waits in Needs review");
   assert.ok((waiting.twins || []).some((x) => x.id === mainId), "warned against the purchase");
+});
+
+test("Undo when the friend's share was only netted against a debt the other way: allowed, and that debt owes again", () => {
+  const t = setup();
+  const friend = t.rt.api("addFriend", { name: "Parts Friend " + Math.random().toString(36).slice(2, 6) });
+  t.rt.api("addLoan", { friend_id: friend.id, direction: "i_owe_them", amount: 50, currency: "PEN", date: "2026-03-01", payment_method_id: t.pm.id, description: "Borrowed" });
+  const net = () => { const f = t.rt.api("listLoanBalances", {}).find((x) => x.friend_id === friend.id); const b = f && f.balances.find((x) => x.currency === "PEN"); return b ? Math.round(b.net * 100) / 100 : 0; };
+  const before = net();
+  const e = t.rt.api("createEntry", t.fields({ amount: 160 }));
+  t.rt.run(`setEntryField_(${JSON.stringify(e.id)}, 'status', 'pending'); setEntryField_(${JSON.stringify(e.id)}, 'source', 'email')`);
+  const partId = uuid();
+  t.rt.api("saveEntryAll", { kind: "confirm", id: e.id, fields: { amount: 120, category_id: t.gifts }, splits: [], tag_ids: [],
+    parts: [{ id: partId, category_id: t.shopping, amount: 40, splits: [{ friend_id: friend.id, amount: 20 }] }] });
+  assert.notEqual(net(), before);
+  t.rt.api("unconfirmEntry", { id: e.id });
+  assert.equal(t.row(e.id).status, "pending");
+  assert.equal(net(), before, "the friend's balance is back to what it was");
 });

@@ -4502,9 +4502,9 @@ function sendPendingConfirmInBackground_(id) {
     refreshReviewQueue(undefined, true).catch(() => {});
     showToast_(tr("entry.savedToast"));
     // Split into categories (owner, 2026-11-27): Undo puts it back in Needs review as it arrived, one item with the whole amount.
-    // Not when a part is shared with a friend (the server refuses that Undo, as for any shared entry).
+    // Its friends' shares and debts go too (the server refuses only if a friend already repaid part of it).
     const parts = action.parts && action.parts.length ? action.parts : null;
-    if (!followed && parts && !(action.splits || []).length && !parts.some((p) => (p.splits || []).length)) {
+    if (!followed && parts) {
       const f = action.fields || {};
       const total = Number(f.amount || 0) + parts.reduce((sum, p) => sum + Number(p.amount), 0);
       const names = [...new Set([f.category_id].concat(parts.map((p) => p.category_id)).filter(Boolean).map(categoryName))].join(" + ");

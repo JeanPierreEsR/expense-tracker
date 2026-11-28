@@ -216,8 +216,10 @@ function purchaseStmtSummary_(e, catsById, pmsById) {
 }
 
 // Undo of a Needs review confirm that split the purchase (owner, 2026-11-27: "it shouldn't be refused"): the purchase goes back
-// to how it arrived — ONE waiting item with the whole amount and the first part's category; the other parts are deleted.
-// A part shared with friends is refused, like the Undo of any shared entry (its friends' debts would have to go too).
+// to how it arrived — ONE waiting item with the whole amount and the first part's category; the other parts are deleted, and the
+// friends' shares and the debts they made go too (owner: also when a part is shared). A debt only netted against what the
+// friend owed the other way just owes again. Refused only when a friend REALLY repaid part of it, or it was forgiven: that
+// money moved, and Undo must not make it vanish (the person deletes the purchase instead, which asks what to do with it).
 function unconfirmPurchase_(entry) {
   var pid = purchaseIdOf_(entry);
   var all = getAllRows('Entries').filter(function (e) { return purchaseIdOf_(e) === pid; });
@@ -225,14 +227,21 @@ function unconfirmPurchase_(entry) {
   if (!main || main.source === 'manual') throw new Error(tr_('err.cannotUnconfirm'));
   var ids = {};
   all.forEach(function (e) { ids[String(e.id)] = true; });
-  var shared = getAllRows('Entry Splits').some(function (sp) { return ids[String(sp.entry_id)]; }) ||
-    getAllRows('Loans').some(function (l) { return ids[String(l.entry_id)]; });
-  if (shared) throw new Error(tr_('err.cannotUnconfirm'));
+  var loans = getAllRows('Loans').filter(function (l) { return l.origin === 'entry' && ids[String(l.entry_id)]; });
+  if (loans.length) {
+    ensureSettlementsOffsetColumn_();
+    var loanIds = {};
+    loans.forEach(function (l) { loanIds[String(l.id)] = true; });
+    var repaid = loans.some(function (l) { return l.status === 'forgiven' || Number(l.forgiven_parts ? loanForgivenPartsTotal_(l) : 0) > 0.004; }) ||
+      getAllRows('Settlements').some(function (s) { return loanIds[String(s.loan_id)] && !s.offset_loan_id && Number(s.amount) > 0.004; });
+    if (repaid) throw new Error(tr_('parts.undoRepaid'));
+  }
   var total = Math.round(all.reduce(function (sum, e) { return sum + Number(e.amount || 0); }, 0) * 100) / 100;
   purchaseDeleting_ = true;
   try {
     all.forEach(function (e) { if (String(e.id) !== pid) discardEntryWithRepayments_(String(e.id), undefined); });
   } finally { purchaseDeleting_ = false; }
+  deleteEntrySplitsAndLoansForEntry_(pid, false);   // the main part's shares and debts (the other parts took theirs with them)
   updateRowFields_('Entries', pid, { amount: total, purchase_id: '' });
   setEntryField_(pid, 'status', 'pending');
   return { done: true, id: pid };
