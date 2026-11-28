@@ -18,6 +18,27 @@
 // round-trip time to tell network/wake-up delay from real Sheet work.
 var PERF_INSTANCE_WARM_ = false;
 
+// Where a request's server time goes (owner, 2026-11-28: the start took ~16 s, 13 s of it on Google). Each whole-sheet read (its
+// Google trip and the turning of its rows into objects) and each part of the start is timed; the 20 longest go back with the
+// response as `serverParts` ([label, ms]) and the app's Performance log shows them. Labels are tab and step names only.
+var PERF_PARTS_ = null;
+var PERF_PARTS_MAX_ = 20;
+function perfPart_(label, ms) {
+  if (PERF_PARTS_ && PERF_PARTS_.length < 400) PERF_PARTS_.push([label, ms]);
+}
+function perfTime_(label, fn) {
+  var t0 = Date.now();
+  try { return fn(); } finally { perfPart_(label, Date.now() - t0); }
+}
+// The longest parts, same label added up (a sheet read twice shows once with its total and ×2).
+function perfPartsForResponse_() {
+  if (!PERF_PARTS_ || !PERF_PARTS_.length) return null;
+  var sum = {}, count = {};
+  PERF_PARTS_.forEach(function (p) { sum[p[0]] = (sum[p[0]] || 0) + p[1]; count[p[0]] = (count[p[0]] || 0) + 1; });
+  return Object.keys(sum).sort(function (a, b) { return sum[b] - sum[a]; }).slice(0, PERF_PARTS_MAX_)
+    .map(function (k) { return [count[k] > 1 ? k + ' ×' + count[k] : k, sum[k]]; });
+}
+
 // A Sheet cell not set to text turns 0123 into 123: read as what was meant.
 function pmLast4_(v) { var s = String(v === undefined || v === null ? '' : v).trim(); return /^\d{1,3}$/.test(s) ? ('000' + s).slice(-4) : s; }
 
@@ -36,6 +57,7 @@ function doPostInner_(e) {
   var perfStart = Date.now();
   var perfCold = !PERF_INSTANCE_WARM_;
   PERF_INSTANCE_WARM_ = true;
+  PERF_PARTS_ = [];
   RATES_MEMO_ = null;   // never carry rates over from a previous request
   HOME_CURRENCY_MEMO_ = null;   // nor the main currency (HomeCurrency.gs)
   RATE_BASE_MEMO_ = null;       // nor the rates' base currency
@@ -154,6 +176,9 @@ function doPostInner_(e) {
   }
   response.serverMs = Date.now() - perfStart;
   response.coldInstance = perfCold;
+  var parts = perfPartsForResponse_();
+  if (parts) response.serverParts = parts;
+  PERF_PARTS_ = null;
   return ContentService.createTextOutput(JSON.stringify(response))
     .setMimeType(ContentService.MimeType.JSON);
 }
@@ -935,7 +960,14 @@ function personTz_() {
 // thousands of rows, and every Utilities.formatDate is a call into Google's side). See CHANGELOG.md § Speed pass.
 function readAllRows_(sheetName) {
   var sheet = sheetRaw_(sheetName);
+  var tRead = Date.now();
   var all = sheet.getDataRange().getValues();
+  perfPart_('read ' + sheetName, Date.now() - tRead);
+  var tConv = Date.now();
+  try { return readAllRowsFrom_(sheetName, all); } finally { perfPart_('rows ' + sheetName, Date.now() - tConv); }
+}
+
+function readAllRowsFrom_(sheetName, all) {
   var headers = all[0] || [];
   if (ROWS_MEMO_) ROWS_MEMO_['@h:' + sheetName] = headers.slice();   // for memoHasColumns_
   if (all.length < 2) return [];
@@ -1035,46 +1067,46 @@ function underCreateLock_(sheetNames, fn) {
 }
 
 function getMeta() {
-  runHealsOnce_();   // one-time repairs of a copy installed before a fix existed (Heals.gs); friends' copies only
-  ensureInvestmentPlatforms_();
-  ensureCashAccount_();   // every copy has one built-in Cash account (owner, 2026-11-02)
-  ensureRailDefaults_();
-  ensureAnnualTag_();
+  perfTime_('meta runHealsOnce_', runHealsOnce_);   // one-time repairs of a copy installed before a fix existed (Heals.gs); friends' copies only
+  perfTime_('meta ensureInvestmentPlatforms_', ensureInvestmentPlatforms_);
+  perfTime_('meta ensureCashAccount_', ensureCashAccount_);   // every copy has one built-in Cash account (owner, 2026-11-02)
+  perfTime_('meta ensureRailDefaults_', ensureRailDefaults_);
+  perfTime_('meta ensureAnnualTag_', ensureAnnualTag_);
   if (unitsModelOn_()) ensureUnitsModel_();   // a company copy's units out of the tags, once (Units.gs), before the tags are read
-  ensureAllTripGroupFriends_();
-  var payorMergeAsk = payorMergeAskForApp_();   // the owner's copy: names to confirm before payors and friends become one list
+  perfTime_('meta ensureAllTripGroupFriends_', ensureAllTripGroupFriends_);
+  var payorMergeAsk = perfTime_('meta payorMergeAskForApp_', payorMergeAskForApp_);   // the owner's copy: names to confirm before payors and friends become one list
   return {
-    categories: localizeCategories_(getAllRowsCached_('Categories')),
-    banks: getAllRowsCached_('Banks'),
-    paymentMethods: getAllRowsCached_('Payment Methods').map(function (pm) { return Object.assign({}, pm, { last_4: pmLast4_(pm.last_4) }); }),
-    tags: localizeTags_(getAllRowsCached_('Tags')),
-    trips: getTripRows_(),
+    categories: perfTime_('meta categories', function () { return localizeCategories_(getAllRowsCached_('Categories')); }),
+    banks: perfTime_('meta banks', function () { return getAllRowsCached_('Banks'); }),
+    paymentMethods: perfTime_('meta paymentMethods', function () { return getAllRowsCached_('Payment Methods').map(function (pm) { return Object.assign({}, pm, { last_4: pmLast4_(pm.last_4) }); }); }),
+    tags: perfTime_('meta tags', function () { return localizeTags_(getAllRowsCached_('Tags')); }),
+    trips: perfTime_('meta trips', function () { return getTripRows_(); }),
     // Business pack (Business.gs): empty, and no sheet is read, while the person has not turned it on.
-    companies: getCompanyRows_(),
-    projects: getProjectRows_(),
-    units: unitsForMeta_(),   // a company copy's units, each in its project (Units.gs); [] elsewhere
-    expectedPayments: getExpectedRows_(),   // empty (and nothing read) while the pack is off
-    closedMonths: closedMonths_(),
-    contracts: contractsForApp_(),   // company copies' construction contracts with their figures (Contracts.gs); [] elsewhere   // company copies: months closed (MonthClose.gs); [] elsewhere
-    friends: getFriendsWithLastUsed_(),
-    payors: getPayorsWithLastIncome_(),
+    companies: perfTime_('meta companies', function () { return getCompanyRows_(); }),
+    projects: perfTime_('meta projects', function () { return getProjectRows_(); }),
+    units: perfTime_('meta units', function () { return unitsForMeta_(); }),   // a company copy's units, each in its project (Units.gs); [] elsewhere
+    expectedPayments: perfTime_('meta expectedPayments', function () { return getExpectedRows_(); }),   // empty (and nothing read) while the pack is off
+    closedMonths: perfTime_('meta closedMonths', function () { return closedMonths_(); }),
+    contracts: perfTime_('meta contracts', function () { return contractsForApp_(); }),   // company copies' construction contracts with their figures (Contracts.gs); [] elsewhere   // company copies: months closed (MonthClose.gs); [] elsewhere
+    friends: perfTime_('meta friends', function () { return getFriendsWithLastUsed_(); }),
+    payors: perfTime_('meta payors', function () { return getPayorsWithLastIncome_(); }),
     payorMergeAsk: payorMergeAsk,
-    settings: settingsForApp_(),
+    settings: perfTime_('meta settings', function () { return settingsForApp_(); }),
     // What this copy of the backend can do beyond the spreadsheet (Features.gs). The
     // Export screen offers "Send to my email" only when an address was saved.
-    capabilities: getCapabilities_(),
+    capabilities: perfTime_('meta capabilities', function () { return getCapabilities_(); }),
     // Banks for the welcome questions (two alphabetical groups) and the words account names are built from.
-    bankCatalog: getBankCatalog_(),
+    bankCatalog: perfTime_('meta bankCatalog', function () { return getBankCatalog_(); }),
     // Which Google account's inbox bank e-mails are read from, and the banks whose e-mails have a rule (EmailParser.gs): More → Bank emails.
-    emailInfo: getEmailInfo_(),
+    emailInfo: perfTime_('meta emailInfo', function () { return getEmailInfo_(); }),
     // "Is this you?" (OwnerNames.gs): the name the Home card asks about, '' when there is none.
-    ownNameAsk: ownerNameAsk_(),
+    ownNameAsk: perfTime_('meta ownNameAsk', function () { return ownerNameAsk_(); }),
     // The day this copy started being used: "from before the app" dates start on the day before (Loans.gs).
-    firstUseDate: firstUseDate_(),
+    firstUseDate: perfTime_('meta firstUseDate', function () { return firstUseDate_(); }),
     // Programmed items still PAUSED (Pause no longer exists: the app makes the person choose Reactivate / Stop / Delete for each, once).
-    pausedProgrammed: pausedProgrammedForApp_(),
+    pausedProgrammed: perfTime_('meta pausedProgrammed', function () { return pausedProgrammedForApp_(); }),
     // Existing items repeating every 3 months or more, to tag Annual once the person has seen the list (RecurringExpenses.gs; 2026-11-16).
-    annualItemsAsk: annualItemsAsk_()
+    annualItemsAsk: perfTime_('meta annualItemsAsk', function () { return annualItemsAsk_(); })
   };
 }
 
@@ -1138,7 +1170,7 @@ function getAllRowsCached_(sheetName) {
   if (ROWS_MEMO_ && ROWS_MEMO_[memoKey] && ROWS_MEMO_[memoKey].key === key) {
     return ROWS_MEMO_[memoKey].rows.map(function (r) { return Object.assign({}, r); });
   }
-  var rows = getAllRowsCachedRead_(sheetName, key);
+  var rows = perfTime_('cache ' + sheetName, function () { return getAllRowsCachedRead_(sheetName, key); });
   if (ROWS_MEMO_) ROWS_MEMO_[memoKey] = { key: key, rows: rows.map(function (r) { return Object.assign({}, r); }) };
   return rows;
 }
@@ -1175,12 +1207,12 @@ function getStartupBundle(payload) {
   // whatever changes a sheet opens it with getSheet, which drops that sheet's remembered rows and headers.
   ROWS_MEMO_ = {};
   try {
-    var meta = getMeta();
+    var meta = perfTime_('step getMeta', getMeta);
     return {
       meta: meta,
-      entries: listEntries({ limit: (payload && payload.entriesLimit) || 20 }),
-      pending: listPendingEntries(),
-      expectedRecurring: listExpectedRecurringItems()
+      entries: perfTime_('step listEntries', function () { return listEntries({ limit: (payload && payload.entriesLimit) || 20 }); }),
+      pending: perfTime_('step listPendingEntries', listPendingEntries),
+      expectedRecurring: perfTime_('step listExpectedRecurringItems', listExpectedRecurringItems)
     };
   } finally {
     ROWS_MEMO_ = null;
