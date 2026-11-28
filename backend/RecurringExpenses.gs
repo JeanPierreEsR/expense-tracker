@@ -41,7 +41,7 @@ function ensureRecurringExpensesSheet_() {
   // Columns added after the sheet already held real data are appended in
   // place, one at a time. The header row is read once and re-read only after an
   // append (this runs many times per request, and each read is a trip to Google).
-  var cols = ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id', 'tag_ids'];
+  var cols = ['date', 'start_date', 'end_date', 'variable', 'match_words', 'interval', 'interval_unit', 'trip_id', 'tag_ids', 'payor_id'];
   if (memoHasColumns_('Recurring Expenses', cols)) return;   // a looking call reads the whole sheet next anyway (Api.gs)
   var headers = getHeaders(sheet);
   cols.forEach(function (col) {
@@ -786,8 +786,25 @@ function recurringExpenseForClient_(r, categoryById, splitSums) {
     amount_low: r.amount_low !== undefined ? Math.round(r.amount_low * 100) / 100 : null,
     amount_high: r.amount_high !== undefined ? Math.round(r.amount_high * 100) / 100 : null,
     trip_id: r.trip_id ? String(r.trip_id) : '',   // a one-time item counted as an estimate in this trip/event (Trips.gs)
-    tag_ids: recurringTagIds_(r)   // its tags (owner, 2026-11-16): Annual makes its planned amounts annual (recurringIsAnnual_)
+    tag_ids: recurringTagIds_(r),   // its tags (owner, 2026-11-16): Annual makes its planned amounts annual (recurringIsAnnual_)
+    payor_id: r.payor_id ? String(r.payor_id) : '',   // who pays a programmed income (owner, 2026-11-28)
+    payor_name: recurringPayorName_(r)
   };
+}
+
+// "Received from" of a programmed income (owner, 2026-11-28): a person of the payers' list (Friends once payers and friends are one
+// list), kept only for an item in an income category; anything else is saved blank.
+function recurringPayorFor_(payorId, categoryId) {
+  var id = String(payorId || '');
+  if (!id) return '';
+  var cat = getAllRows('Categories').find(function (c) { return c.id === categoryId; });
+  if (!cat || cat.type !== 'income') return '';
+  return getPayorRows_().some(function (p) { return String(p.id) === id; }) ? id : '';
+}
+function recurringPayorName_(r) {
+  if (!r.payor_id) return '';
+  var p = getPayorRows_().find(function (x) { return String(x.id) === String(r.payor_id); });
+  return p ? String(p.name || '') : '';
 }
 
 function addRecurringExpense(payload) {
@@ -819,7 +836,8 @@ function addRecurringExpense(payload) {
     variable: variable.variable ? 'true' : 'false',
     match_words: variable.match_words,
     trip_id: frequency === 'once' ? tripIdForProgrammed_(payload.trip_id, payload.category_id) : '',
-    tag_ids: cleanRecurringTagIds_(payload.tag_ids)
+    tag_ids: cleanRecurringTagIds_(payload.tag_ids),
+    payor_id: recurringPayorFor_(payload.payor_id, payload.category_id)
   };
   // A future-dated shared expense from the entry form arrives with its split (capability programSplits): checked before
   // anything is written, then saved in the same call.
@@ -907,7 +925,13 @@ function updateRecurringExpense(payload) {
   }
 
   if (payload.tag_ids !== undefined) payload.tag_ids = cleanRecurringTagIds_(payload.tag_ids);
-  ['category_id', 'description', 'amount', 'currency', 'frequency', 'interval', 'interval_unit', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words', 'trip_id', 'tag_ids'].forEach(function (field) {
+  // Who pays a programmed income (owner, 2026-11-28): kept only while its category is an income one.
+  if (payload.payor_id !== undefined || payload.category_id !== undefined) {
+    var payorRow = getAllRows('Recurring Expenses').find(function (r) { return r.id === payload.id; });
+    payload.payor_id = recurringPayorFor_(payload.payor_id !== undefined ? payload.payor_id : payorRow.payor_id,
+      payload.category_id !== undefined ? payload.category_id : payorRow.category_id);
+  }
+  ['category_id', 'description', 'amount', 'currency', 'frequency', 'interval', 'interval_unit', 'day', 'month', 'date', 'active', 'start_date', 'end_date', 'variable', 'match_words', 'trip_id', 'tag_ids', 'payor_id'].forEach(function (field) {
     if (payload[field] === undefined) return;
     var value = payload[field];
     if (field === 'variable') value = value ? 'true' : 'false';
@@ -1561,14 +1585,15 @@ function listEntriesForRecurringMonth(payload) {
         id: e.id, date: e.date, amount: Number(e.amount), currency: e.currency,
         own_amount: Number(e.amount) - (entrySplitSums[e.id] || 0),
         description: e.description || '', category_name: categoryById[e.category_id] ? categoryLabel_(categoryById[e.category_id]) : '',
-        linked_here: e.recurring_expense_id === re.id
+        linked_here: e.recurring_expense_id === re.id,
+        from_payor: !!re.payor_id && String(e.paid_by || '') === String(re.payor_id)   // its payer's income goes first (2026-11-28)
       };
     });
   var ordered = orderMatchCandidates_(candidates, {
     amount: Number(re.amount), own_amount: recurringOwnAmount_(re, getRecurringExpenseSplitSums_()),
     currency: re.currency || homeCurrency_(), date: occ, description: re.description
   });
-  ordered.forEach(function (c) { delete c.own_amount; });   // only used for ranking
+  ordered.forEach(function (c) { delete c.own_amount; delete c.from_payor; });   // only used for ranking
   return ordered;
 }
 
@@ -1679,7 +1704,7 @@ function orderMatchCandidates_(candidates, target) {
     var wordScore = significantWords_(c.description).some(function (w) { return targetWords.indexOf(w) !== -1; }) ? 0.5 : 0;
     var days = Math.abs(daysBetweenDates_(c.date, target.date));
     c._days = days;
-    c._score = amountScore + wordScore + 0.3 * Math.max(0, 1 - days / 10);
+    c._score = amountScore + wordScore + 0.3 * Math.max(0, 1 - days / 10) + (c.from_payor ? 1 : 0);
     c.is_top = false;
   });
   var ranked = candidates.slice().sort(function (a, b) {
@@ -1754,7 +1779,12 @@ function entryMatchesRecurringOccurrence_(entry, recurring, occurrenceDates, ent
     var entryMonth = entryPlanMonth_(entry);   // the month the link pays (an early salary pays next month's)
     return occurrenceDates.some(function (occDate) { return String(occDate).substring(0, 7) === entryMonth; });
   }
-  if (entry.category_id !== recurring.category_id) return false;
+  // A programmed income with a payer (owner, 2026-11-28): an income from someone else never counts as its payment, and one from that
+  // payer counts even in another category (the amount and date rules below still apply).
+  var payor = recurring.payor_id ? String(recurring.payor_id) : '';
+  var fromPayor = !!payor && entry.type === 'income' && String(entry.paid_by || '') === payor;
+  if (payor && entry.type === 'income' && entry.paid_by && !fromPayor) return false;
+  if (entry.category_id !== recurring.category_id && !fromPayor) return false;
   if (isVariableRecurring_(recurring)) return variableEntryMatchesOccurrence_(entry, recurring, occurrenceDates);
   var recCurrency = recurring.currency || homeCurrency_();
   var amt = recurringOwnAmount_(recurring, recurringSplitSums);
@@ -1809,9 +1839,11 @@ function listExpectedRecurringItems() {
   // reach well outside this month (a car service paid six weeks early), and a
   // monthly item's 5-day window can cross a month edge.
   var confirmedByCategory = {};
+  var incomeByPayor = {};   // a programmed income with a payer is also paid by that payer's income in another category
   getAllRows('Entries').forEach(function (e) {
     if (e.status !== 'confirmed') return;
     (confirmedByCategory[e.category_id] = confirmedByCategory[e.category_id] || []).push(e);
+    if (e.type === 'income' && e.paid_by) (incomeByPayor[e.paid_by] = incomeByPayor[e.paid_by] || []).push(e);
   });
   var splitSums = getRecurringExpenseSplitSums_();
   var entrySplitSumByEntry = {};
@@ -1829,7 +1861,7 @@ function listExpectedRecurringItems() {
     if (e.status === 'confirmed' && e.recurring_expense_id) (linkedByItem[e.recurring_expense_id] = linkedByItem[e.recurring_expense_id] || []).push(e);
   });
   function occurrenceHandled(r, occDate) {
-    var pool = (confirmedByCategory[r.category_id] || []).concat(linkedByItem[r.id] || []);
+    var pool = (confirmedByCategory[r.category_id] || []).concat(linkedByItem[r.id] || [], r.payor_id ? (incomeByPayor[r.payor_id] || []) : []);
     return pool.some(function (e) {
       return entryMatchesRecurringOccurrence_(e, r, [occDate], entrySplitSumByEntry, splitSums);
     });
@@ -1872,6 +1904,7 @@ function listExpectedRecurringItems() {
       category_id: r.category_id,
       trip_id: r.trip_id || '',
       tag_ids: recurringTagIds_(r),   // carried into "Record the payment…" (owner, 2026-11-16)
+      payor_id: r.payor_id ? String(r.payor_id) : '',   // "Received from" of "Record the payment…" (owner, 2026-11-28)
       full_amount: Number(r.amount),   // the whole bill, for the "Mark as paid" pre-fill (a shared item's `amount` is only the owner's share)
       estimated: isVariableRecurring_(r),   // variable bill: the amount is an average, shown with "≈"
       // The occurrence's own actual (clamped) day, not the raw configured

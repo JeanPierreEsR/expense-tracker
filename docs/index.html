@@ -4586,6 +4586,13 @@
         <input type="hidden" id="recurring-currency" value="PEN">
         <div class="currency-chips" id="recurring-currency-chips"></div>
 
+        <!-- Who pays a programmed income (owner, 2026-11-28): an income item only, where the backend has recurringPayor. -->
+        <div id="recurring-payor-field" hidden>
+          <label for="recurring-payor" data-i18n="field.receivedFrom">Received from</label>
+          <select id="recurring-payor"></select>
+          <p class="hint" data-i18n="recModal.payorHint">Optional. An income from this person counts as this item's payment, even in another category; one from someone else never does.</p>
+        </div>
+
         <div id="recurring-variable-field">
           <label class="checkbox-row">
             <input type="checkbox" id="recurring-variable-toggle">

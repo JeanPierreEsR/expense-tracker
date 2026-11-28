@@ -148,6 +148,7 @@ function getCapabilities_() {
     practiceDeleted: true,   // createPracticeDeleted + removePracticeDeleted: the Recently deleted practice is only offered where this exists (and where entriesRestore + entriesBulk do)
     practiceReview: true,  // createPracticePending + removePracticeReview + the practice entries are ignored by learning / follow / guesses: the Needs review practice is only offered where this exists
     repayNothingOwed: true,   // recordRepayment answers ask_if_nothing_owed ({nothing_owed}) and takes opening_loan (a debt from before the app saved with its repayment); an older backend lacks them, so Home's "+" saves as before
+    recurringPayor: true,   // Programmed items keep payor_id ("Received from" of an income item) and match / rank by it (owner, 2026-11-28); an older backend would drop it, so the phone hides the field
     repayLimit: true,   // recordRepayment and the conversions into a repayment take limit (pay ONLY the chosen loans; the rest is the extra); an older backend would spill it onto the other loans, so the phone hides the switch
     convertAllocations: true,   // convertEntryToRepayment / convertRepaymentToRepayment take allocations (the loans chosen, as recordRepayment); an older backend pays oldest first, so the phone hides the choice there
     openingLoan: true,   // addLoan understands `opening` (a debt from before the app: no money entry); an older backend would save a normal loan, so the app hides the switch

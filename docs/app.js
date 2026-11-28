@@ -4928,6 +4928,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       const programmedExtras = {};
       if (splits && splits.length) programmedExtras.splits = splits.map((s) => ({ friend_id: s.friend_id, amount: s.amount }));
       if (programmedTagsOn_() && tagIds.length) programmedExtras.tag_ids = tagIds;
+      if (selectedType === "income" && paidBy && ((meta && meta.capabilities) || {}).recurringPayor) programmedExtras.payor_id = paidBy;   // its payer goes with it (2026-11-28)
       const item = repeat ? {
         category_id: categoryId, description, amount, currency, active: true,
         frequency: repeat.frequency, interval: repeat.interval, interval_unit: repeat.interval_unit,
@@ -5212,6 +5213,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       const programmedExtras = {};
       if (splits && splits.length) programmedExtras.splits = splits.map((s) => ({ friend_id: s.friend_id, amount: s.amount }));
       if (programmedTagsOn_() && tagIds.length) programmedExtras.tag_ids = tagIds;
+      if (selectedType === "income" && paidBy && ((meta && meta.capabilities) || {}).recurringPayor) programmedExtras.payor_id = paidBy;   // its payer goes with it (2026-11-28)
       await callApi("addRecurringExpense", repeat ? {
         // "Repeat…" on a future date: the repeating item itself, starting that day (no entry yet).
         category_id: categoryId, description, amount, currency, active: true,
@@ -28296,7 +28298,7 @@ function renderRecurringRow_(re) {
     ${recurringEditing_ ? `<input type="checkbox" class="friends-check" tabindex="-1" aria-hidden="true"${recurringSelected_.has(re.id) ? " checked" : ""}>` : ""}
     <div>
       <div class="recurring-row-name">${catEmojiHtml_(re.category_icon)}${escapeHtml(re.description || re.category_name)}</div>
-      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.variable ? tr("recurring.variableTag") : ""}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}${recurringTripTag_(re)}${recurringTagPillsHtml_(re)}</div>
+      <div class="recurring-row-sub">${escapeHtml(re.category_name)} · ${recurringFreqLabel_(re)}${re.variable ? tr("recurring.variableTag") : ""}${recurringStatusLabel_(re, todayISO)}${re.split_total > 0.005 ? tr("recurring.splitTag") : ""}${isIncome && re.payor_name ? escapeHtml(tr("recurring.fromTag", { name: re.payor_name })) : ""}${recurringTripTag_(re)}${recurringTagPillsHtml_(re)}</div>
     </div>
     <div class="recurring-row-amount${isIncome ? " income" : ""}">${isIncome ? sensitiveHtml_(renderRecurringAmountHtml_(re)) : renderRecurringAmountHtml_(re)}</div>
   `;
@@ -28500,7 +28502,55 @@ function toggleRecurringSplitFieldVisibility() {
   if (varLabel) { varLabel.dataset.i18n = cat && cat.type === "income" ? "recModal.variableIncome" : "recModal.variable"; varLabel.textContent = tr(varLabel.dataset.i18n); }
   if (!show) resetRecurringSplitState();
   syncRecurringTripField_();
+  syncRecurringPayorField_();
 }
+
+// "Received from" of a programmed income (owner, 2026-11-28): the same people list and "More…" screen as the "+" form's income, plus
+// "Anyone" (no payer, matched as before). Shown once an income category is picked, where the backend keeps it (`recurringPayor`).
+let recurringPayorId_ = "";
+function syncRecurringPayorField_() {
+  const field = document.getElementById("recurring-payor-field");
+  const cat = meta.categories.find((c) => c.id === selectedRecurringCategoryId);
+  const show = !!cat && cat.type === "income" && !!((meta && meta.capabilities) || {}).recurringPayor;
+  field.hidden = !show;
+  if (!show) return;
+  const sel = document.getElementById("recurring-payor");
+  sel.innerHTML = "";
+  const none = document.createElement("option");
+  none.value = "";
+  none.textContent = tr("recModal.noPayor");
+  sel.appendChild(none);
+  const payers = incomePayers_();
+  const kept = recurringPayorId_ && !payers.some((p) => p.id === recurringPayorId_) && (meta.payors || []).find((p) => p.id === recurringPayorId_);
+  (kept ? payers.concat([kept]) : payers).forEach((p) => {   // (a person hidden since stays on the item that names them)
+    const opt = document.createElement("option");
+    opt.value = p.id;
+    opt.textContent = p.name;
+    sel.appendChild(opt);
+  });
+  const addOpt = document.createElement("option");
+  addOpt.value = "__add_payor__";
+  addOpt.textContent = tr("common.addPayor");
+  sel.appendChild(addOpt);
+  personShortList_(sel, {
+    title: () => tr("friendPick.payer"),
+    lastUsed: (id) => { const p = (meta.payors || []).find((x) => x.id === id); return p ? String(p.last_income || "") : ""; },
+  });
+  sel.value = recurringPayorId_;
+  if (sel.value !== recurringPayorId_) { recurringPayorId_ = ""; sel.value = ""; }
+}
+document.getElementById("recurring-payor").addEventListener("change", async (e) => {
+  if (e.target.value !== "__add_payor__") { recurringPayorId_ = e.target.value; return; }
+  const name = await askName_(tr("prompt.payorName"));
+  e.target.value = recurringPayorId_;   // back to what was there, never someone the person did not choose
+  if (!name || !name.trim()) return;
+  const payor = await callApi("addPayor", { name: name.trim() });
+  const known = meta.payors.find((p) => p.id === payor.id);
+  if (known) { if (isHiddenFriend_(known)) known.hidden = ""; } else meta.payors.push(payor);
+  if (peopleOneList_() && !meta.friends.some((f) => f.id === payor.id)) meta.friends.push(payor);
+  recurringPayorId_ = payor.id;
+  syncRecurringPayorField_();
+});
 
 // The trip/event picker shows only for a one-time item in an expense category, and only when a trip exists.
 function syncRecurringTripField_() {
@@ -28899,6 +28949,7 @@ async function openRecurringModal(re, prefill) {
   document.getElementById("recurring-description").value = src ? src.description : "";
 
   selectedRecurringCategoryId = src ? src.category_id : null;
+  recurringPayorId_ = (src && src.payor_id) || "";
   recurringCatType_ = "expense";
   populateRecurringCategoryChips();
 
@@ -29318,6 +29369,7 @@ document.getElementById("recurring-save-btn").addEventListener("click", async ()
       trip_id: recurringFrequency === "once" ? document.getElementById("recurring-trip").value : ""
     };
     if (programmedTagsOn_()) fields.tag_ids = [...recurringTagIds_];
+    if (((meta && meta.capabilities) || {}).recurringPayor) fields.payor_id = document.getElementById("recurring-payor-field").hidden ? "" : recurringPayorId_;
     // A changing amount is recognised by its words: checked here so the form stays open with what was typed (Lucía, 2026-11-15;
     // the server's rule: a word of 3+ letters that is not only digits).
     if (fields.variable && !fields.match_words.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().split(/[^a-z0-9]+/).some((w) => w.length >= 3 && !/^\d+$/.test(w))) {
@@ -30039,7 +30091,7 @@ function startPaymentEntryForItem_(item, currency, isIncome, fullAmount, savedSp
   applyEntryDraft_({
     v: 1, type: isIncome ? "income" : "expense", categoryId: item.category_id || "",
     amount: Number(fullAmount).toFixed(2), description: item.description || "", currency,
-    paidBy: "", paymentMethodId: "", toPaymentMethodId: "", date: "", tagIds: (item.tag_ids || []).slice(),   // the item's tags (removable here)
+    paidBy: isIncome ? (item.payor_id || "") : "", paymentMethodId: "", toPaymentMethodId: "", date: "", tagIds: (item.tag_ids || []).slice(),   // the item's tags (removable here); an income's payer (2026-11-28)
     tripId: isIncome ? "" : (item.trip_id || ""), businessPick: "", expectedPick: "",
     igvOn: false, igvAmount: "", igvTouched: false
   });
