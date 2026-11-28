@@ -283,3 +283,73 @@ test("step 3: a bot's card for a split purchase shows the whole amount and each 
   assert.match(card, /PEN 160\.00/);
   assert.match(card, /Split into: .* 120\.00 · .* 40\.00/);
 });
+
+test("the FIRST part turned into income: it leaves, and the other parts stay one purchase led by the next part", () => {
+  const t = setup();
+  const mainId = uuid(), p2 = uuid(), p3 = uuid();
+  t.rt.api("saveEntryAll", { kind: "create", fields: Object.assign(t.fields(), { client_id: mainId, tag_ids: [] }), splits: [],
+    parts: [{ id: p2, category_id: t.shopping, amount: 40, splits: [] }, { id: p3, category_id: t.shopping, amount: 10, splits: [] }] });
+  const income = t.meta.categories.find((c) => c.type === "income").id;
+  t.rt.api("updateEntry", { id: mainId, fields: { type: "income", category_id: income } });
+  assert.equal(t.row(mainId).purchase_id, "");
+  const rest = [t.row(p2), t.row(p3)];
+  assert.equal(rest[0].purchase_id, rest[1].purchase_id);
+  assert.ok([p2, p3].includes(rest[0].purchase_id), "led by one of its own parts");
+  // A date changed on it still follows on the other part.
+  t.rt.api("updateEntry", { id: p3, fields: { date: "2026-03-20" } });
+  assert.equal(String(t.row(p2).date).slice(0, 10), "2026-03-20");
+  assert.notEqual(String(t.row(mainId).date).slice(0, 10), "2026-03-20");
+  // With two parts, the first turned into income leaves ONE plain entry.
+  const two = t.buy();
+  t.rt.api("updateEntry", { id: two.mainId, fields: { type: "income", category_id: income } });
+  assert.equal(t.row(two.partId).purchase_id, "");
+});
+
+const waitingShared = (t, friend, amount) => {
+  const e = t.rt.api("createEntry", t.fields({ amount: 100 }));
+  t.rt.run(`setEntryField_(${JSON.stringify(e.id)}, 'status', 'pending'); setEntryField_(${JSON.stringify(e.id)}, 'source', 'email')`);
+  t.rt.api("saveEntryAll", { kind: "confirm", id: e.id, fields: { amount: 100, category_id: t.gifts }, splits: [{ friend_id: friend.id, amount }], tag_ids: [] });
+  return e;
+};
+
+test("Undo of a confirm of a plain entry shared with a friend: waiting again, the friend's share and debt gone", () => {
+  const t = setup();
+  assert.equal(t.meta.capabilities.unconfirmShared, true);
+  const friend = t.rt.api("addFriend", { name: "Undo Friend " + Math.random().toString(36).slice(2, 6) });
+  const e = waitingShared(t, friend, 50);
+  assert.equal(t.rt.api("getFriendLoanDetail", { friendId: friend.id }).length, 1);
+  t.rt.api("unconfirmEntry", { id: e.id });
+  assert.equal(t.row(e.id).status, "pending");
+  assert.equal(Number(t.row(e.id).amount), 100);
+  assert.equal(t.rt.api("getFriendLoanDetail", { friendId: friend.id }).length, 0);
+  assert.equal(t.rt.rows("Entry Splits").filter((s) => s.entry_id === e.id).length, 0);
+  // The several-at-once Undo too.
+  const e2 = waitingShared(t, friend, 30);
+  const res = t.rt.api("unconfirmEntries", { items: [{ id: e2.id }] });
+  assert.deepEqual(res.undone, [e2.id]);
+  assert.equal(t.rt.api("getFriendLoanDetail", { friendId: friend.id }).length, 0);
+});
+
+test("Undo of a plain shared confirm is refused once the friend really repaid; nothing changes", () => {
+  const t = setup();
+  const friend = t.rt.api("addFriend", { name: "Undo Friend " + Math.random().toString(36).slice(2, 6) });
+  const e = waitingShared(t, friend, 50);
+  t.rt.api("recordRepayment", { friend_id: friend.id, direction: "they_owe_me", amount: 10, date: "2026-03-11", currency: "PEN", payment_method_id: t.pm.id });
+  assert.throws(() => t.rt.api("unconfirmEntry", { id: e.id }), /repaid/);
+  assert.equal(t.row(e.id).status, "confirmed");
+  assert.equal(t.rt.api("getFriendLoanDetail", { friendId: friend.id }).length, 1);
+  const res = t.rt.api("unconfirmEntries", { items: [{ id: e.id }] });
+  assert.equal(res.kept[0].reason, "refused");
+});
+
+test("Undo of a confirm of an entry a friend paid: waiting again, the debt to the friend gone", () => {
+  const t = setup();
+  const friend = t.rt.api("addFriend", { name: "Undo Friend " + Math.random().toString(36).slice(2, 6) });
+  const e = t.rt.api("createEntry", t.fields({ amount: 100 }));
+  t.rt.run(`setEntryField_(${JSON.stringify(e.id)}, 'status', 'pending'); setEntryField_(${JSON.stringify(e.id)}, 'source', 'email')`);
+  t.rt.api("saveEntryAll", { kind: "confirm", id: e.id, fields: { amount: 100, category_id: t.gifts, paid_by: friend.id }, splits: [], tag_ids: [] });
+  assert.ok(t.rt.rows("Loans").some((l) => l.entry_id === e.id), "the friend paid: a debt to them");
+  t.rt.api("unconfirmEntry", { id: e.id });
+  assert.equal(t.row(e.id).status, "pending");
+  assert.equal(t.rt.rows("Loans").filter((l) => l.entry_id === e.id).length, 0);
+});
