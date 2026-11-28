@@ -127,3 +127,28 @@ test("a hand edit is still detected when the app also changed something after th
   rt2.api("updateEntry", { id: c.id, fields: { amount: 12 } });
   assert.equal(rt2.api("getMonthClose", { month: ym }).hand_edited, false);
 });
+
+// testers 2.80.0 (Lucho; month close checked by hand): "What is owed" and what the close keeps count everything the company owes,
+// a contact's loan and a subcontractor's guarantee included; a contract payment corrected after the close is not a hand edit.
+test("everything the company owes, in Overview and in the close; a corrected contract payment is logged", () => {
+  const rt = companyCopy();
+  const contact = rt.api("addFriend", { name: "Contacto Comun" });
+  rt.api("addLoan", { friend_id: contact.id, direction: "i_owe_them", amount: 5000, currency: "PEN", date: day(10), payment_method_id: pm(rt) });
+  const project = rt.rows("Projects")[0].id;
+  const labor = rt.rows("Categories").find((c) => c.name === "Labor").id;
+  const c = rt.api("saveContract", { project_id: project, supplier_name: "Encofrados Lima", amount: 100000, currency: "PEN", advance_pct: 20, retention_pct: 5 });
+  const val = rt.api("createEntry", { type: "expense", date: day(8), amount: 28500, currency: "PEN", category_id: labor, description: "Val 1", payment_method_id: pm(rt),
+    paid_by: "me", project_id: project, contract_payment: { contract_id: c.id, kind: "valuation", gross: 30000, advance_amortized: 0, retention_held: 1500 } });
+  const last = rt.run(`monthLastDay_('${ym}')`);
+  const owed = rt.api("getPeriodSummary", { startDate: `${ym}-01`, endDate: last }).company.owed;
+  assert.ok(owed.some((p) => p.name === "Contacto Comun" && p.lines[0].amount === 5000), "a contact's loan");
+  assert.ok(owed.some((p) => /Encofrados Lima/.test(p.name) && p.lines[0].amount === 1500), "the guarantee kept");
+  const closed = rt.api("closeMonth", { month: ym, bank: [] });
+  assert.ok(closed.close.figures.owed.some((o) => o.name === "Contacto Comun" && o.net === -5000));
+  assert.ok(closed.close.figures.owed.some((o) => /Encofrados Lima/.test(o.name) && o.net === -1500));
+  rt.api("saveEntryAll", { kind: "update", id: val.id, fields: { amount: 28000, contract_payment: { contract_id: c.id, kind: "valuation", gross: 30000, advance_amortized: 0, retention_held: 2000 } } });
+  const after = rt.api("getMonthClose", { month: ym });
+  assert.equal(after.changed, true);
+  assert.equal(after.hand_edited, false, "changed through the app, not by hand");
+  assert.ok(after.changes.some((l) => l.table === "Contract Payments"));
+});

@@ -22,7 +22,8 @@ function cleanDetraction_(entry, raw) {
   if (raw === '' || raw === null || raw === undefined) return '';
   if (!isCompanyCopy_() || !entry || entry.type !== 'income' || !entry.company_id) return '';
   var n = Number(raw);
-  if (!isFinite(n) || n <= 0) return '';
+  if (!isFinite(n) || n < 0) throw new Error(tr_('detr.badAmount'));   // testers 2.80.0 (Elena): it used to be dropped in silence
+  if (n === 0) return '';
   if (n >= Math.abs(Number(entry.amount))) throw new Error(tr_('detr.tooBig'));
   return round2_(n);
 }
@@ -50,6 +51,41 @@ function detractionAccountId_() {
   return String(pm.id);
 }
 
+// The Banco de la Nación account starts at 0, on the day before its first movement, so it shows in Balances, the month close's bank
+// check and the package's balances like any account (testers 2.80.0, Elena: without a starting balance no balance ever listed it). An
+// earlier movement than the start moves a start of 0 back; a starting balance the person typed (not 0) is never touched.
+function dayBefore_(day) {
+  var d = new Date(String(day).slice(0, 10) + 'T12:00:00Z');
+  d.setUTCDate(d.getUTCDate() - 1);
+  return d.toISOString().slice(0, 10);
+}
+function ensureDetractionOpening_(bn, date) {
+  var want = dayBefore_(date);
+  var rows = getAllRows('Account Opening Balances').filter(function (r) { return String(r.payment_method_id) === String(bn); });
+  if (!rows.length) {
+    setPaymentMethodOpeningBalance({ id: bn, balances: [{ currency: 'PEN', amount: 0, date: want }] });
+    return;
+  }
+  var pen = rows.find(function (r) { return String(r.currency || 'PEN').toUpperCase() === 'PEN'; });
+  if (rows.length === 1 && pen && Number(pen.amount) === 0 && String(pen.date || '') > want) {
+    setPaymentMethodOpeningBalance({ id: bn, balances: [{ currency: 'PEN', amount: 0, date: want }] });
+  }
+}
+
+// Heal (company copies): a Banco de la Nación account made before 2.81 has no starting balance; it gets one of 0 before its first movement.
+function healDetractionOpening_() {
+  if (!isCompanyCopy_()) return;
+  var bn = String(getSettingsMap()[DETRACTION_ACCOUNT_SETTING_] || '');
+  if (!bn || !getAllRows('Payment Methods').some(function (p) { return String(p.id) === bn; })) return;
+  var first = '';
+  getAllRows('Entries').forEach(function (e) {
+    if (String(e.payment_method_id) !== bn && String(e.to_payment_method_id) !== bn) return;
+    var d = String(e.date || '').slice(0, 10);
+    if (d && (!first || d < first)) first = d;
+  });
+  ensureDetractionOpening_(bn, first || Utilities.formatDate(new Date(), personTz_(), 'yyyy-MM-dd'));
+}
+
 // Makes the linked transfer agree with its income (made, changed or removed). Called after every write that can change an income.
 function syncDetraction_(incomeId) {
   if (!detractionColumnsExist_()) return;
@@ -64,6 +100,7 @@ function syncDetraction_(incomeId) {
   var description = tr_('detr.transferDesc', { what: String(income.description || '') || tr_('detr.transferDescPlain') });
   var date = String(income.date).slice(0, 10);
   var bn = detractionAccountId_();
+  ensureDetractionOpening_(bn, date);
   if (String(income.currency || 'PEN').toUpperCase() !== 'PEN') { syncDetractionExchange_(income, linked, bn, date, description); return; }
   var fields = {
     date: date, amount: round2_(Number(income.detraction_amount)), currency: 'PEN',

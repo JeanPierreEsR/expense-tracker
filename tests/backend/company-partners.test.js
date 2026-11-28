@@ -301,3 +301,21 @@ test("a company copy speaks of contacts, not friends (texts with a '.co' form); 
     assert.equal(holes(S[k].en), holes(base.en), k + " keeps the placeholders");
   });
 });
+
+// owner, 2026-11-27 (testers 2.80.0, Wilmer): editing a partner's money also changes its account, date and description.
+test("editing a partner's money changes its account, date and description", () => {
+  const rt = companyCopy();
+  const other = rt.api("addPaymentMethod", { nickname: "Caja chica", type: "debit" }).id;
+  plus(rt, { kind: "contribution", client_id: uuid(40) });
+  const row = rt.rows("Contributions")[0];
+  const d = new Date(today() + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() - 3);
+  const day = d.toISOString().slice(0, 10);
+  rt.api("changePartnerMoney", { id: row.id, kind: "contribution", amount: 12000, payment_method_id: other, date: day, description: "Aporte para la obra" });
+  let e = rt.rows("Entries").find((x) => x.id === uuid(40));
+  assert.equal(e.payment_method_id, other);
+  assert.equal(String(e.date).slice(0, 10), day);
+  assert.equal(e.description, "Aporte para la obra");
+  rt.api("changePartnerMoney", { id: row.id, kind: "pending", description: "" });
+  e = rt.rows("Entries").find((x) => x.id === uuid(40));
+  assert.match(e.description, /Socio Prueba/, "empty = the app's own words");
+});

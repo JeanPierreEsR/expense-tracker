@@ -1299,6 +1299,7 @@ function createEntry(payload) {
     entry.income_waiting = '1';
   }
   checkDetractionBeforeSave_(entry, payload.detraction_amount, payload.detraction_pen);   // Detractions.gs: refused before anything is written
+  if (payload.contract_payment) checkContractPaymentBeforeSave_(entry, payload.contract_payment, '');   // Contracts.gs: the same
   appendRowObject('Entries', entry);
   if (incomeWaits) createWaitingIncomeLoan_(entry, payload.due_date);
   if (guessedCategory) entry.guessed_category_name = categoryNameForMessage_(guessedCategory);
@@ -1930,6 +1931,7 @@ function buildSearchIndexRows_(entries) {
     if (usdShare != null) row.own_share_usd = usdShare;   // third currency: the share in dollars (RatesUsd.gs)
     // Only while the Business pack is on, so a personal-only copy's search data is exactly what it was.
     if (e.income_waiting) row.income_waiting = e.income_waiting;
+    if (e.detraction_of) row.detraction_of = String(e.detraction_of);   // the app's own move to the Banco de la Nación is not a use of that account (Detractions.gs)
     if (business) { row.company_id = e.company_id || ''; row.project_id = e.project_id || ''; row.expected_payment_id = e.expected_payment_id || ''; row.igv_amount = e.igv_amount || ''; }
     if (business && e.unit_id) {   // a company copy's unit (Units.gs): its row pill, the form's recent units, and found by its name in the search
       row.unit_id = String(e.unit_id);

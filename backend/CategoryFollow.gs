@@ -268,6 +268,7 @@ function updateEntryFromApp_(payload) {
   if (payload.fields && payload.fields.detraction_amount !== undefined) {   // Detractions.gs: refused before anything is written
     checkDetractionBeforeSave_(Object.assign({}, getEntryById_(payload.id) || {}, payload.fields), payload.fields.detraction_amount, payload.fields.detraction_pen);
   }
+  if (payload.fields) checkContractPaymentBeforeSave_(Object.assign({}, getEntryById_(payload.id) || {}, payload.fields), payload.fields.contract_payment, payload.id);   // Contracts.gs
   var entry = updateEntryFields(payload.id, payload.fields);
   if (afterIncomeEdit) { afterIncomeEdit(); entry = getEntryById_(payload.id); }
   if (afterRefundEdit) { afterRefundEdit(); entry = getEntryById_(payload.id); }
