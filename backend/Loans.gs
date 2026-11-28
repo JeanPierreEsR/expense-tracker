@@ -1493,7 +1493,9 @@ function convertLoanToRepaymentInto_(payload) {
       payment_method_id: payload.payment_method_id,
       description: withoutAutoLoanDescription_(loan, payload.description),   // the old loan's default text is not the repayment's own
       overpay_category_id: payload.overpay_category_id,
-      overpay_pending_ok: payload.overpay_pending_ok
+      overpay_pending_ok: payload.overpay_pending_ok,
+      allocations: payload.allocations,   // the loans chosen, and only those (owner, 2026-11-28: the list in every place)
+      limit: payload.limit
     });
     return { overpaid: result.overpaid, currency: result.currency, overpayment_entry: result.overpayment_entry };
   } catch (err) {

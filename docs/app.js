@@ -4738,6 +4738,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
       const friendName = (meta.friends.find((f) => f.id === friendId) || {}).name || "";
       const isLoanKind = transferKind_() === "loan";
       const direction = debtDirection_();
+      if (!isLoanKind && entryRepayLimit_() && !chooseAssignments_(CHOOSE_ENTRY_).length) throw new Error(tr("reassign.limitNone"));
+      entryRepayLimitSent_ = !isLoanKind && entryRepayLimit_();   // (read by the message after the save)
       if (!isLoanKind && !(entryRepayAllocations_() || []).length && !(await askRepayLoansFirst_(CHOOSE_ENTRY_))) return;   // the form stays open
       // An investment becoming a loan / repayment follows how the money moved (the server checks it too).
       if (editingInvestmentLeft_ !== null && editingEntryId) {
@@ -4852,9 +4854,10 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
           ...(wasPending && !isLoanKind && direction === "they_owe_me" ? { require_owed: true } : {})
         };
         // "Choose which loans this pays" (owner, 2026-11-23: from Home too when an entry becomes a repayment); none = oldest first.
-        if (conversionAction === "convertEntryToRepayment" || conversionAction === "convertRepaymentToRepayment") {
+        if (conversionAction === "convertEntryToRepayment" || conversionAction === "convertRepaymentToRepayment" || conversionAction === "convertLoanToRepayment") {
           const chosen = entryRepayAllocations_();
           if (chosen && chosen.length) conversionPayload.allocations = chosen;
+          if (chosen && chosen.length && entryRepayLimit_()) conversionPayload.limit = true;
         }
         try {
           result = popupHiddenEarly ? await callApi(conversionAction, conversionPayload) : await callConversion_(conversionAction, conversionPayload);
@@ -4874,6 +4877,7 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         // "Choose which loans this pays" (owner, 2026-11-14): the loans ticked get the payment, oldest first; none = oldest first overall.
         const chosen = entryRepayAllocations_();
         if (chosen && chosen.length) repayPayload.allocations = chosen;
+        if (chosen && chosen.length && entryRepayLimit_()) repayPayload.limit = true;   // only those loans; the rest is the extra
         // This save waits for the server's answer (it may ask what the money is). With no connection the form used to sit still with a
         // greyed Save and no word (testers 2.68.2): now it says it is waiting, and goes on by itself once the connection is back.
         if (navigator.onLine === false) showToast_(tr("repay.waitingNet"), false, 20000);
@@ -4903,7 +4907,8 @@ document.getElementById("entry-form").addEventListener("submit", async (e) => {
         refreshReviewQueue().catch(() => {});
       } else if (!isLoanKind && result.overpaid > 0.004) {
         const isIncome = direction === "they_owe_me";
-        const noteKey = (overpayCategoryId ? "repay.overpaidRecorded" : "repay.overpaidPending") + (isIncome ? "Income" : "Expense");
+        const limited = entryRepayLimitSent_;
+        const noteKey = (overpayCategoryId ? (limited ? "repay.limitedRecorded" : "repay.overpaidRecorded") : (limited ? "repay.limitedPending" : "repay.overpaidPending")) + (isIncome ? "Income" : "Expense");
         extraNote = tr(noteKey, { cur: currency, amount: moneyFmt(result.overpaid) });
         refreshReviewQueue().catch(() => {});
       }
@@ -9425,7 +9430,7 @@ async function flushMoneyQueue_() {
       try { await afterMoneySaved_(item); } catch (e) { /* the screen shows its own load error */ }
       if (loanDetailAutoClosed_ !== settledBefore && loanDetailAutoClosed_) { /* its "All settled" toast stands */ }
       else if (item.action === "recordRepayment" && result && result.overpaid > 0.004) {
-        showToast_(tr("money.repaidExtra", { cur: result.currency, amount: moneyFmt(result.overpaid) }));
+        showToast_(tr(item.payload && item.payload.limit ? "money.repaidLimited" : "money.repaidExtra", { cur: result.currency, amount: moneyFmt(result.overpaid) }));
       } else {
         showToast_(tr("common.savedToast"));
       }
@@ -39178,8 +39183,8 @@ const CHOOSE_SHEET_ = {
   pool: () => repaymentLoans_
 };
 const chooseEl_ = (ctx, part) => document.getElementById(`${ctx.id}-choose${part ? "-" + part : ""}`);
-// "Pay only the selected loans" (owner, 2026-11-28): offered where the panel has its switch (Needs review → Mark as repayment) and the
-// backend takes `limit` (`repayLimit`). On: nothing spills onto the other loans; what the ticked ones cannot take is the extra.
+// "Pay only the selected loans" (owner, 2026-11-28): in every loan list (the Loans sheet, Home's "+" and an entry turned into a
+// repayment, Needs review → Mark as repayment), where the backend takes `limit` (`repayLimit`). On: nothing spills onto the other loans; what the ticked ones cannot take is the extra.
 const chooseLimitOn_ = (ctx) => { const box = chooseEl_(ctx, "limit"); return !!box && !chooseEl_(ctx, "limit-row").hidden && box.checked; };
 
 // The ticked loans are paid in order (oldest first) until the payment runs out: no amounts to type per loan.
@@ -39390,6 +39395,7 @@ function entryRepayReassign_() {
   const line = entryRepayEditLine_();
   if (!line || document.getElementById("entry-repay-choose").hidden || document.getElementById("entry-repay-choose-panel").hidden) return null;
   const ticked = [...document.querySelectorAll("#entry-repay-choose-list input[data-loan]")].filter((x) => x.checked).map((x) => x.dataset.loan);
+  if (chooseLimitOn_(CHOOSE_ENTRY_)) return ticked.length ? { id: line.id, loan_ids: ticked, limit: true } : null;   // only those: the rest is the extra
   // What the ticked loans would take, then the rest oldest first: the plan the server makes. Unchanged = nothing to send.
   const loans = entryRepayEditLoans_(line);
   const plan = {};
@@ -39440,7 +39446,11 @@ function syncEntryRepayChoose_() {
 // choice too (owner, 2026-11-23), where the backend takes it (`convertAllocations`). Not a loan's own entry (the loan itself would be in
 // the list and goes away), nor a repayment kept with the same person and direction (that one opens the repayment's own editor).
 function entryConvertCanChoose_(friendId) {
-  if (!editingEntryId || editingLoanMovement_ || !((meta && meta.capabilities) || {}).convertAllocations) return false;
+  const caps = (meta && meta.capabilities) || {};
+  if (!editingEntryId || !caps.convertAllocations) return false;
+  // A loan's own entry turned into a repayment (owner, 2026-11-28: the list in every place): the loan itself is the other way round,
+  // so it is never in the list; offered where the backend passes the choice on (`convertLoanAllocations`).
+  if (editingLoanMovement_) return !!caps.convertLoanAllocations;
   const r = editingRepayment_;
   return !r || friendId !== r.friend_id || repaymentDirectionChoice !== r.direction || CHOOSE_ENTRY_.cur() !== String(r.currency || "").toUpperCase();
 }
@@ -39449,6 +39459,11 @@ function entryConvertCanChoose_(friendId) {
 function resetEntryRepayChoose_() {
   try { entryRepayLoans_.clear(); entryRepayHistory_.clear(); entryRepayKey_ = ""; resetChoose_(CHOOSE_ENTRY_, false); } catch (e) { /* not set up yet */ }
 }
+// "Pay only the selected loans" on in the "+" form's list (open, with its switch on). Remembered at save time for the message after it.
+function entryRepayLimit_() {
+  return !document.getElementById("entry-repay-choose").hidden && !document.getElementById("entry-repay-choose-panel").hidden && chooseLimitOn_(CHOOSE_ENTRY_);
+}
+let entryRepayLimitSent_ = false;
 // What the save sends: the chosen loans, or none (oldest first). Null when the panel is closed.
 function entryRepayAllocations_() {
   if (document.getElementById("entry-repay-choose").hidden || document.getElementById("entry-repay-choose-panel").hidden) return null;
@@ -39628,6 +39643,8 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
   let allocations = !editingSettlementId && !document.getElementById("settlement-choose-panel").hidden ? settlementAssignments_() : [];
   if (repaymentTargetLoan_ && !editingSettlementId && !allocations.length && amount <= repaymentTargetLoan_.remaining + 0.004) allocations = [{ loan_id: repaymentTargetLoan_.loan_id, amount }];
   if (allocations.reduce((n, a) => n + a.amount, 0) > amount + 0.004) { errorEl.textContent = tr("settle.chooseTooMuch"); return; }
+  const limit = !editingSettlementId && !document.getElementById("settlement-choose-panel").hidden && chooseLimitOn_(CHOOSE_SHEET_);
+  if (limit && !settlementAssignments_().length) { errorEl.textContent = tr("reassign.limitNone"); return; }
   if (!editingSettlementId && !allocations.length && !(await askRepayLoansFirst_(CHOOSE_SHEET_))) return;   // the sheet stays open
   // Moving a recorded repayment to another loan: checked here too, so the message shows in the open sheet.
   const newLoanId = editingSettlementId && !document.getElementById("settlement-loan-field").hidden ? document.getElementById("settlement-loan").value : "";
@@ -39680,7 +39697,8 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
         payment_method_id: paymentMethodId,
         description,
         project_id: repaymentProjectId_ || undefined,
-        allocations: allocations.length ? allocations : undefined
+        allocations: allocations.length ? allocations : undefined,
+        limit: limit || undefined   // only the loans ticked; the rest is the extra
       }, `${tr("money.labelRepayment")} · ${friendName} ${currency} ${moneyFmt(amount)}`, { friendId, friendName });
       return;
     }
@@ -39694,7 +39712,8 @@ document.getElementById("settlement-save-btn").addEventListener("click", async (
       payment_method_id: paymentMethodId,
       description,
       project_id: repaymentProjectId_ || undefined,   // only that project's debts are paid down (Loans.gs)
-      allocations: allocations.length ? allocations : undefined   // the loans the person chose; none = oldest first
+      allocations: allocations.length ? allocations : undefined,   // the loans the person chose; none = oldest first
+      limit: limit || undefined
     });
 
     refreshEntriesInBackground_();
@@ -40120,6 +40139,8 @@ function syncReviewRepayChoose_() {
 document.getElementById("review-transfer-friend").addEventListener("change", syncReviewRepayChoose_);
 document.getElementById("review-transfer-choose-btn").addEventListener("click", () => chooseOpenOrClose_(CHOOSE_REVIEW_));
 document.getElementById("review-transfer-choose-limit").addEventListener("change", () => renderChooseSummary_(CHOOSE_REVIEW_));
+document.getElementById("settlement-choose-limit").addEventListener("change", () => renderChooseSummary_(CHOOSE_SHEET_));
+document.getElementById("entry-repay-choose-limit").addEventListener("change", () => renderChooseSummary_(CHOOSE_ENTRY_));
 document.getElementById("review-transfer-amount").addEventListener("input", () => {
   if (!document.getElementById("review-transfer-choose-panel").hidden) renderChooseSummary_(CHOOSE_REVIEW_);
 });
