@@ -5466,6 +5466,7 @@
     "perf.p90": { en: "p90 {v}", es: "p90 {v}" },
     "perf.max": { en: "max {v}", es: "máx {v}" },
     "perf.server": { en: "server {v}", es: "servidor {v}" },
+    "perf.parts": { en: "Server, last time: {list}", es: "Servidor, la última vez: {list}" },
     "perf.cold": { en: "{n} cold", es: "{n} en frío" },
     "perf.retried": { en: "{n} retried", es: "{n} con reintento" },
     "perf.failed": { en: { one: "1 failed", other: "{n} failed" }, es: { one: "1 fallido", other: "{n} fallidos" } },

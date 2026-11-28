@@ -1269,7 +1269,7 @@ async function callApiOnce_(action, payload, attempt, startedAt) {
     betaRecordError_(action, "network");
     throw Object.assign(new Error(tr("error.unreachable")), { code: "unreachable" });
   }
-  perfRecordCall_(action, performance.now() - startedAt, attempt, json.serverMs, json.coldInstance, !!json.ok);
+  perfRecordCall_(action, performance.now() - startedAt, attempt, json.serverMs, json.coldInstance, !!json.ok, json.serverParts);
   if (!json.ok && (json.code === "invalid_access_code" || json.error === "Invalid access code") && getSessionToken()) {
     // This device's session was ended (signed out from another device, the
     // sheet menu, or unused for 90 days): go back to the sign-in screen.
@@ -1365,12 +1365,22 @@ function perfAppend_(entry) {
   }
 }
 
-function perfRecordCall_(action, totalMs, attempts, serverMs, cold, ok) {
-  perfAppend_({
+// `parts` (2026-11-28): where the server's time went, [label, ms] longest first (backend perfPartsForResponse_). Kept on this phone
+// only: the speed sharing sends a fixed list of fields and this is not one of them.
+function perfRecordCall_(action, totalMs, attempts, serverMs, cold, ok, parts) {
+  const entry = {
     t: Date.now(), kind: "call", name: action, totalMs: Math.round(totalMs),
     serverMs: typeof serverMs === "number" ? serverMs : null,
     cold: !!cold, attempts, ok
-  });
+  };
+  if (Array.isArray(parts) && parts.length) entry.parts = parts.slice(0, 12).map((p) => [String(p[0]).slice(0, 60), Math.round(Number(p[1]) || 0)]);
+  perfAppend_(entry);
+}
+
+// The latest call of a group that brought its server parts, as "label 1.2s · …" (the Performance log shows the 8 longest).
+function perfPartsText_(entries, fmt) {
+  const last = entries.filter((e) => Array.isArray(e.parts) && e.parts.length).pop();
+  return last ? last.parts.slice(0, 8).map((p) => `${p[0]} ${fmt(p[1])}`).join(" · ") : "";
 }
 
 function perfRecordStartup_(name, ms) {
@@ -21570,7 +21580,8 @@ function perfSummaryRows_() {
       name: key, total, server,
       cold: es.filter((e) => e.cold).length,
       retried: es.filter((e) => e.attempts > 1).length,
-      failed: es.filter((e) => e.ok === false).length
+      failed: es.filter((e) => e.ok === false).length,
+      entries: es
     };
   });
 }
@@ -21583,6 +21594,8 @@ function perfReportText_() {
   rows.forEach((r) => {
     lines.push([r.name, r.total.n, r.total.median, r.total.p90, r.total.max,
       r.server ? r.server.median : "-", r.cold, r.retried, r.failed].join(" | "));
+    const parts = perfPartsText_(r.entries, (ms) => `${ms}ms`);
+    if (parts) lines.push(`  server parts (last): ${parts}`);
   });
   return lines.join("\n");
 }
@@ -21619,6 +21632,7 @@ function renderPerfScreen() {
       <div class="hint">${[tr("perf.median", { v: fmt(r.total.median) }), tr("perf.p90", { v: fmt(r.total.p90) }), tr("perf.max", { v: fmt(r.total.max) }),
         r.server ? tr("perf.server", { v: fmt(r.server.median) }) : "",
         r.cold ? tr("perf.cold", { n: r.cold }) : "", r.retried ? tr("perf.retried", { n: r.retried }) : "", r.failed ? tr("perf.failed", { n: r.failed }) : ""].filter(Boolean).join(" · ")}</div>
+      ${(() => { const parts = perfPartsText_(r.entries, fmt); return parts ? `<div class="hint">${escapeHtml(tr("perf.parts", { list: parts }))}</div>` : ""; })()}
     </div>`).join("");
 }
 
